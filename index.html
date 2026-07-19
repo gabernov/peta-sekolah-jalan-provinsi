@@ -147,6 +147,27 @@
     #panel-body::-webkit-scrollbar-track { background: transparent; }
     #panel-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
 
+    /* Basemap Gallery */
+    #basemap-section { margin-top: 16px; }
+    .basemap-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .basemap-item {
+      position: relative; border-radius: 8px; overflow: hidden;
+      cursor: pointer; border: 2px solid transparent;
+      transition: all 0.2s; aspect-ratio: 16/10;
+    }
+    .basemap-item:hover { border-color: #475569; }
+    .basemap-item.active { border-color: #38bdf8; }
+    .basemap-item img {
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .basemap-item .label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.8));
+      padding: 4px 6px; font-size: 10px; color: #e2e8f0;
+    }
+
     .maplibregl-popup-content {
       background: #1e293b !important; color: #e2e8f0 !important;
       border-radius: 8px !important; padding: 10px 14px !important;
@@ -227,6 +248,10 @@
       <div class="legend-labels">
         <span>0m</span><span>50m</span><span>60m</span><span>100m</span><span>150m</span><span>200m</span><span>600m+</span>
       </div>
+    </div>
+    <div class="section" id="basemap-section" style="display:none;">
+      <div class="section-title">Basemap</div>
+      <div class="basemap-grid" id="basemap-grid"></div>
     </div>
   </div>
 </div>
@@ -501,6 +526,92 @@
   });
   map.addControl(new maplibregl.NavigationControl(), "top-right");
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), "bottom-left");
+
+  // ═══════════════════════════════════════════════════════════
+  // BASEMAP GALLERY (from madewithmaplibre.com/basemaps/gallery)
+  // ═══════════════════════════════════════════════════════════
+  const BASEMAPS = [
+    { name: "Liberty", style: "https://tiles.openfreemap.org/styles/liberty", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-liberty.webp" },
+    { name: "Bright", style: "https://tiles.openfreemap.org/styles/bright", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-bright.webp" },
+    { name: "Positron", style: "https://tiles.openfreemap.org/styles/positron", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-positron.webp" },
+    { name: "Dark", style: "https://tiles.openfreemap.org/styles/dark", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-dark.webp" },
+    { name: "Fiord", style: "https://tiles.openfreemap.org/styles/fiord", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-fiord.webp" },
+  ];
+
+  let currentBasemap = "Liberty";
+
+  function initBasemapGallery() {
+    const grid = $("basemap-grid");
+    grid.innerHTML = "";
+    BASEMAPS.forEach(bm => {
+      const item = document.createElement("div");
+      item.className = "basemap-item" + (bm.name === currentBasemap ? " active" : "");
+      item.innerHTML = `<img src="${bm.thumb}" alt="${bm.name}" loading="lazy"><div class="label">${bm.name}</div>`;
+      item.addEventListener("click", () => switchBasemap(bm));
+      grid.appendChild(item);
+    });
+  }
+
+  function switchBasemap(bm) {
+    if (bm.name === currentBasemap) return;
+    currentBasemap = bm.name;
+
+    // Preserve current layers/sources
+    const sources = {};
+    const layers = [];
+    const layerIds = [];
+
+    // Collect all non-basemap sources and layers
+    map.getStyle().layers.forEach(layer => {
+      if (layer.id !== "openmaptiles" && layer.id !== "openmaptiles-bg") {
+        layerIds.push(layer.id);
+        layers.push({ ...layer });
+        if (layer.source && !sources[layer.source]) {
+          sources[layer.source] = map.getSource(layer.source);
+        }
+      }
+    });
+
+    // Switch style
+    map.setStyle(bm.style);
+
+    map.once("style.load", () => {
+      // Re-add preserved sources
+      for (const [id, src] of Object.entries(sources)) {
+        if (!map.getSource(id) && src) {
+          try {
+            map.addSource(id, src.serialize());
+          } catch (e) {
+            console.warn("Could not restore source:", id, e);
+          }
+        }
+      }
+
+      // Re-add preserved layers
+      layers.forEach(layer => {
+        if (!map.getLayer(layer.id)) {
+          try {
+            map.addLayer(layer);
+          } catch (e) {
+            console.warn("Could not restore layer:", layer.id, e);
+          }
+        }
+      });
+
+      // Restore filters
+      updateFilters();
+      updateRoadVisibility();
+    });
+
+    // Update active state in gallery
+    document.querySelectorAll(".basemap-item").forEach((item, i) => {
+      item.classList.toggle("active", BASEMAPS[i].name === bm.name);
+    });
+  }
+
+  // Show basemap section
+  $("basemap-section").style.display = "block";
+  initBasemapGallery();
 
   let roadsGeoJSON = null;
   let schoolsGeoJSON = null;
