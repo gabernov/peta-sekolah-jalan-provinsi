@@ -1,5 +1,4 @@
-# Data files (too large for git)
-*.parquet
+# Data files (exclude large exports, keep parquet for deployment)
 *.xlsx
 *.xls
 *.csv
