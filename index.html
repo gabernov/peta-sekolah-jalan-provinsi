@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Peta Jalan Provinsi - School Distance Visualizer</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #0f172a; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+
+    /* Loading overlay */
+    #loading {
+      position: fixed; inset: 0; z-index: 2000;
+      background: rgba(15, 23, 42, 0.95);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      color: #e2e8f0; font-size: 14px;
+    }
+    #loading.hidden { display: none; }
+    #loading .spinner {
+      width: 40px; height: 40px; border: 3px solid #334155;
+      border-top-color: #38bdf8; border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin-bottom: 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading .error { color: #ef4444; margin-top: 12px; font-size: 12px; max-width: 500px; text-align: center; word-break: break-all; }
+    #loading .status { color: #94a3b8; margin-top: 8px; font-size: 12px; }
+
+    /* Drop overlay */
+    #drop-overlay {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: rgba(15, 23, 42, 0.92);
+      justify-content: center; align-items: center;
+    }
+    #drop-overlay.active { display: flex; }
+    #drop-overlay .box {
+      border: 3px dashed #38bdf8; border-radius: 16px; padding: 60px 80px;
+      text-align: center; color: #e2e8f0;
+    }
+    #drop-overlay .box h2 { font-size: 24px; margin-bottom: 8px; color: #38bdf8; }
+    #drop-overlay .box p { font-size: 14px; color: #94a3b8; }
+
+    /* Sidebar */
+    #panel {
+      position: absolute; top: 12px; left: 12px; z-index: 10;
+      background: #1e293b; color: #e2e8f0;
+      border-radius: 12px; width: 320px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4); overflow: hidden;
+    }
+    #panel-header {
+      background: #0f172a; padding: 14px 16px;
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid #334155;
+    }
+    #panel-header .icon { font-size: 22px; }
+    #panel-header h1 { font-size: 15px; font-weight: 600; }
+    #panel-header .badge {
+      margin-left: auto; background: #38bdf8; color: #0f172a;
+      padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700;
+    }
+    #panel-body { padding: 14px 16px; max-height: calc(100vh - 80px); overflow-y: auto; }
+
+    .section { margin-bottom: 16px; }
+    .section-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em; color: #64748b; margin-bottom: 8px;
+    }
+
+    #file-drop {
+      border: 2px dashed #334155; border-radius: 8px;
+      padding: 16px; text-align: center; cursor: pointer; transition: all 0.2s;
+    }
+    #file-drop:hover { border-color: #38bdf8; background: rgba(56,189,248,0.05); }
+    #file-drop.loaded { border-color: #22c55e; background: rgba(34,197,94,0.08); }
+    #file-drop p { font-size: 12px; color: #94a3b8; }
+    #file-drop .status { font-size: 11px; margin-top: 6px; }
+    #file-drop .status.ok { color: #22c55e; }
+    #file-drop .status.err { color: #ef4444; }
+    #file-drop .status.loading { color: #fbbf24; }
+
+    .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .slider-row label { font-size: 12px; color: #94a3b8; min-width: 90px; }
+    .slider-row input[type="range"] { flex: 1; accent-color: #38bdf8; }
+    .slider-row .val {
+      font-size: 13px; font-weight: 600; color: #38bdf8;
+      min-width: 50px; text-align: right;
+    }
+    #filter-count { font-size: 12px; color: #94a3b8; margin-top: 6px; }
+    #filter-count strong { color: #38bdf8; }
+
+    .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .stat-card {
+      background: #0f172a; border-radius: 8px; padding: 10px 12px;
+      border: 1px solid #334155;
+    }
+    .stat-card .label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-card .value { font-size: 18px; font-weight: 700; color: #e2e8f0; margin-top: 2px; }
+    .stat-card .value.blue { color: #38bdf8; }
+    .stat-card .value.green { color: #22c55e; }
+
+    .uptd-list { display: flex; flex-direction: column; gap: 6px; }
+    .uptd-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; border-radius: 6px;
+      background: #0f172a; border: 1px solid #334155;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .uptd-item:hover { border-color: #475569; }
+    .uptd-item input { accent-color: var(--uptd-color); width: 14px; height: 14px; }
+    .uptd-item .color-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--uptd-color); flex-shrink: 0;
+    }
+    .uptd-item .name { font-size: 12px; flex: 1; }
+    .uptd-item .count { font-size: 11px; color: #64748b; }
+
+    /* Toggle switch */
+    .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle .toggle-slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: #334155; border-radius: 20px; transition: 0.2s;
+    }
+    .toggle .toggle-slider::before {
+      content: ""; position: absolute; height: 14px; width: 14px;
+      left: 3px; bottom: 3px; background: #e2e8f0; border-radius: 50%; transition: 0.2s;
+    }
+    .toggle input:checked + .toggle-slider { background: #38bdf8; }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+    #slider-row.disabled { opacity: 0.35; pointer-events: none; }
+
+    #legend {
+      position: absolute; bottom: 24px; right: 12px; z-index: 10;
+      background: #1e293b; color: #e2e8f0;
+      border-radius: 10px; padding: 12px 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3); font-size: 11px;
+    }
+    #legend h4 { font-size: 11px; font-weight: 600; margin-bottom: 8px; color: #94a3b8; }
+    .legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .legend-color { width: 20px; height: 4px; border-radius: 2px; }
+    .legend-gradient { width: 100%; height: 10px; border-radius: 4px; margin: 6px 0 4px; }
+    .legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: #64748b; }
+
+    #panel-body::-webkit-scrollbar { width: 6px; }
+    #panel-body::-webkit-scrollbar-track { background: transparent; }
+    #panel-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    .maplibregl-popup-content {
+      background: #1e293b !important; color: #e2e8f0 !important;
+      border-radius: 8px !important; padding: 10px 14px !important;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+      font-family: 'Inter', system-ui, sans-serif !important;
+      font-size: 12px !important; max-width: 280px;
+    }
+    .maplibregl-popup-content b { color: #38bdf8; }
+    .maplibregl-popup-tip { border-top-color: #1e293b !important; }
+    .maplibregl-popup-close-button { color: #94a3b8 !important; font-size: 16px !important; }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div>Loading WASM modules...</div>
+  <div class="status" id="load-status"></div>
+  <div class="error" id="load-error"></div>
+</div>
+
+<div id="map"></div>
+
+<div id="drop-overlay">
+  <div class="box">
+    <h2>Drop .parquet files here</h2>
+    <p>ruas_jalan.parquet + sekolah_matched.parquet</p>
+  </div>
+</div>
+
+<div id="panel" style="display:none;">
+  <div id="panel-header">
+    <span class="icon">🏫</span>
+    <h1>Peta Sekolah Jalan Provinsi</h1>
+    <span class="badge" id="school-badge">0</span>
+  </div>
+  <div id="panel-body">
+    <div class="stats-row">
+      <div class="stat-card"><div class="label">Roads</div><div class="value" id="stat-roads">0</div></div>
+      <div class="stat-card"><div class="label">Schools</div><div class="value" id="stat-schools">0</div></div>
+      <div class="stat-card"><div class="label">Matched</div><div class="value green" id="stat-matched">0</div></div>
+      <div class="stat-card"><div class="label">Within 60m</div><div class="value blue" id="stat-nearby">0</div></div>
+    </div>
+    <div class="section">
+      <div class="section-title">Data Files</div>
+      <div id="file-drop">
+        <p>Drag & drop <strong>ruas_jalan.parquet</strong> + <strong>sekolah_matched.parquet</strong></p>
+        <p style="margin-top:4px;font-size:11px;color:#64748b;">or click to select files</p>
+        <input type="file" id="file-input" multiple accept=".parquet" style="display:none;" />
+        <div class="status" id="file-status"></div>
+      </div>
+    </div>
+    <div class="section" id="filter-section" style="display:none;">
+      <div class="section-title">Distance Filter</div>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <label class="toggle">
+          <input type="checkbox" id="filter-toggle" checked />
+          <span class="toggle-slider"></span>
+        </label>
+        <span style="font-size:12px; color:#94a3b8;" id="filter-toggle-label">Filter ON</span>
+      </div>
+      <div class="slider-row" id="slider-row">
+        <label>Max distance</label>
+        <input type="range" id="dist-slider" min="0" max="600" value="60" step="10" />
+        <span class="val" id="dist-val">60m</span>
+      </div>
+      <div id="filter-count">
+        Showing <strong id="visible-count">0</strong> of <strong id="total-count">0</strong> schools
+      </div>
+    </div>
+    <div class="section" id="uptd-section" style="display:none;">
+      <div class="section-title">Road Management (UPTD)</div>
+      <div class="uptd-list" id="uptd-list"></div>
+    </div>
+    <div class="section" id="dist-legend-section" style="display:none;">
+      <div class="section-title">Distance Legend</div>
+      <div class="legend-gradient" style="background: linear-gradient(to right, #2166ac, #67a9cf, #d1e5f0, #fddbc7, #ef8a62, #b2182b);"></div>
+      <div class="legend-labels">
+        <span>0m</span><span>50m</span><span>60m</span><span>100m</span><span>150m</span><span>200m</span><span>600m+</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="legend" style="display:none;">
+  <h4>Road by UPTD</h4>
+  <div id="legend-roads"></div>
+  <div style="margin-top:10px;">
+    <h4>School by Distance</h4>
+      <div class="legend-gradient" style="background: linear-gradient(to right, #2166ac, #67a9cf, #d1e5f0, #fddbc7, #ef8a62, #b2182b); height:8px;"></div>
+      <div class="legend-labels"><span>0m</span><span>50m</span><span>60m</span><span>100m</span><span>200m</span><span>600m+</span></div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+      <span style="width:10px;height:10px;border-radius:50%;background:#6b7280;"></span>
+      <span style="font-size:10px;color:#64748b;">N/A (unmatched)</span>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  // ═══════════════════════════════════════════════════════════
+  // STEP 1: IMPORT DEPENDENCIES (matching geoparquet-visualizer)
+  // ═══════════════════════════════════════════════════════════
+  const $ = id => document.getElementById(id);
+  const loadStatus = $("load-status");
+  const loadError = $("load-error");
+
+  loadStatus.textContent = "Loading Apache Arrow from esm.sh...";
+  let arrow;
+  try {
+    arrow = await import("https://esm.sh/apache-arrow");
+    console.log("Arrow loaded");
+  } catch (e) {
+    loadError.textContent = "Failed to load Apache Arrow: " + e.message;
+    throw e;
+  }
+
+  loadStatus.textContent = "Loading parquet-wasm from jsdelivr...";
+  let parquet;
+  try {
+    parquet = await import("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm.js");
+    console.log("parquet-wasm module loaded, exports:", Object.keys(parquet));
+  } catch (e) {
+    loadError.textContent = "Failed to load parquet-wasm: " + e.message;
+    throw e;
+  }
+
+  loadStatus.textContent = "Initializing WASM binary...";
+  try {
+    // Exactly like geoparquet-visualizer: await parquet.default()
+    await parquet.default();
+    console.log("parquet-wasm initialized via parquet.default()");
+  } catch (e) {
+    // Fallback: try initSync with explicit WASM compilation
+    console.warn("parquet.default() failed, trying initSync fallback:", e.message);
+    try {
+      const wasmResp = await fetch("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm_bg.wasm");
+      const wasmBytes = await wasmResp.arrayBuffer();
+      const wasmModule = await WebAssembly.compile(wasmBytes);
+      parquet.initSync(wasmModule);
+      console.log("parquet-wasm initialized via initSync()");
+    } catch (e2) {
+      loadError.textContent = "Failed to init WASM: " + e.message + " | " + e2.message;
+      throw e2;
+    }
+  }
+
+  loadStatus.textContent = "WASM ready. Waiting for data...";
+
+  // ═══════════════════════════════════════════════════════════
+  // STEP 2: WKB PARSER (from geoparquet-visualizer)
+  // ═══════════════════════════════════════════════════════════
+  function parseWKB(wkbBuffer) {
+    try {
+      const view = new DataView(wkbBuffer);
+      let offset = 0;
+      const byteOrder = view.getUint8(offset++);
+      const littleEndian = byteOrder === 1;
+      const geomType = view.getUint32(offset, littleEndian);
+      offset += 4;
+      const actualGeomType = geomType & 0xFF;
+
+      function readPoint() {
+        const x = view.getFloat64(offset, littleEndian); offset += 8;
+        const y = view.getFloat64(offset, littleEndian); offset += 8;
+        return [x, y];
+      }
+      function readPoints() {
+        const n = view.getUint32(offset, littleEndian); offset += 4;
+        return Array.from({ length: n }, readPoint);
+      }
+      function readLinearRing() {
+        const n = view.getUint32(offset, littleEndian); offset += 4;
+        return Array.from({ length: n }, readPoint);
+      }
+      function readPolygonRings() {
+        const n = view.getUint32(offset, littleEndian); offset += 4;
+        return Array.from({ length: n }, readLinearRing);
+      }
+
+      switch (actualGeomType) {
+        case 1:  return { type: "Point", coordinates: readPoint() };
+        case 2:  return { type: "LineString", coordinates: readPoints() };
+        case 3:  return { type: "Polygon", coordinates: readPolygonRings() };
+        case 4:  return { type: "MultiPoint", coordinates: readPoints() };
+        case 5: {
+          const n = view.getUint32(offset, littleEndian); offset += 4;
+          const lines = [];
+          for (let i = 0; i < n; i++) {
+            offset++; offset += 4; // skip sub-entity WKB header
+            lines.push(readPoints());
+          }
+          return { type: "MultiLineString", coordinates: lines };
+        }
+        case 6: {
+          const n = view.getUint32(offset, littleEndian); offset += 4;
+          const polygons = [];
+          for (let i = 0; i < n; i++) {
+            offset++; offset += 4; // skip sub-entity WKB header
+            polygons.push(readPolygonRings());
+          }
+          return { type: "MultiPolygon", coordinates: polygons };
+        }
+        default:
+          return null;
+      }
+    } catch (e) {
+      console.error("WKB parse error:", e);
+      return null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // STEP 3: PARQUET → GEOJSON (streaming, like geoparquet-visualizer)
+  // ═══════════════════════════════════════════════════════════
+  async function loadParquetToGeoJSON(source, onProgress) {
+    const sourceName = source instanceof File ? source.name : source;
+    let file;
+
+    if (source instanceof File) {
+      file = source;
+    } else {
+      // Fetch the file from URL
+      const resp = await fetch(source);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${source}`);
+      const blob = await resp.blob();
+      file = new File([blob], sourceName);
+    }
+
+    console.log(`[loadParquet] ${sourceName}: ${file.size} bytes`);
+
+    // Use the streaming API — exactly like geoparquet-visualizer
+    const parquetFile = await parquet.ParquetFile.fromFile(file);
+    const recordBatchStream = await parquetFile.stream();
+    const reader = recordBatchStream.getReader();
+
+    const features = [];
+    let batchCount = 0;
+    let totalProcessed = 0;
+
+    // Detect geometry column from first row
+    let geometryColumnName = null;
+
+    while (true) {
+      const { done, value: wasmRecordBatch } = await reader.read();
+      if (done) break;
+
+      const ipcStream = wasmRecordBatch.intoIPCStream();
+      const table = arrow.tableFromIPC(ipcStream);
+      const rowArray = table.toArray();
+
+      // Detect geometry column on first batch
+      if (!geometryColumnName && rowArray.length > 0) {
+        const firstRow = rowArray[0].toJSON();
+        const commonNames = ["geometry", "geom", "wkb_geometry", "shape", "wkb", "geo_shape"];
+        for (const name of commonNames) {
+          if (firstRow[name] instanceof Uint8Array) {
+            geometryColumnName = name;
+            break;
+          }
+        }
+        if (!geometryColumnName) {
+          // Fallback: look for any Uint8Array column
+          for (const [key, val] of Object.entries(firstRow)) {
+            if (val instanceof Uint8Array) {
+              geometryColumnName = key;
+              break;
+            }
+          }
+        }
+        console.log(`[loadParquet] Detected geometry column: ${geometryColumnName}`);
+      }
+
+      for (const rowObject of rowArray) {
+        const jsonData = rowObject.toJSON();
+        const row = {};
+
+        // Convert to plain JS, handling Uint8Array and BigInt
+        for (const [key, value] of Object.entries(jsonData)) {
+          if (value instanceof Uint8Array) {
+            row[key] = new Uint8Array(value);
+          } else if (typeof value === "bigint") {
+            row[key] = Number(value);
+          } else if (value && typeof value.toJSON === "function") {
+            // Arrow StructRow — recurse
+            const plain = {};
+            const inner = value.toJSON();
+            for (const [k, v] of Object.entries(inner)) {
+              plain[k] = typeof v === "bigint" ? Number(v) : v;
+            }
+            row[key] = plain;
+          } else {
+            row[key] = value;
+          }
+        }
+
+        // Parse geometry
+        let geometry = null;
+        if (geometryColumnName && row[geometryColumnName] instanceof Uint8Array) {
+          const wkb = row[geometryColumnName];
+          const buffer = wkb.buffer.slice(wkb.byteOffset, wkb.byteOffset + wkb.byteLength);
+          geometry = parseWKB(buffer);
+        }
+
+        // Fallback: lon/lat columns
+        if (!geometry) {
+          const lon = row.lon || row.longitude || row.lng;
+          const lat = row.lat || row.latitude;
+          if (typeof lon === "number" && typeof lat === "number" && !isNaN(lon) && !isNaN(lat)) {
+            geometry = { type: "Point", coordinates: [lon, lat] };
+          }
+        }
+
+        if (geometry) {
+          const properties = { ...row };
+          if (geometryColumnName) delete properties[geometryColumnName];
+          delete properties.geometry;
+          delete properties.geometry_bbox;
+
+          features.push({
+            type: "Feature",
+            id: totalProcessed,
+            geometry,
+            properties
+          });
+        }
+        totalProcessed++;
+      }
+
+      batchCount++;
+      if (onProgress) onProgress(batchCount, totalProcessed);
+      console.log(`[loadParquet] Batch ${batchCount}: ${totalProcessed} features so far`);
+    }
+
+    console.log(`[loadParquet] Done: ${features.length} features in ${batchCount} batches`);
+    return { type: "FeatureCollection", features };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // STEP 4: MAP + LAYERS + FILTERS
+  // ═══════════════════════════════════════════════════════════
+  const UPTD_COLORS = {
+    "UPTD-I": "#e41a1c", "UPTD-II": "#377eb8",
+    "UPTD-III": "#4daf4a", "UPTD-IV": "#984ea3",
+  };
+  const UPTD_DEFAULT = "#999999";
+
+  const map = new maplibregl.Map({
+    container: "map",
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    center: [107.6, -6.9],
+    zoom: 9,
+  });
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), "bottom-left");
+
+  let roadsGeoJSON = null;
+  let schoolsGeoJSON = null;
+  let activeFilters = new Set();
+
+  // DOM
+  const fileDrop = $("file-drop");
+  const fileInput = $("file-input");
+  const fileStatus = $("file-status");
+
+  // ─── File drop ────────────────────────────────────────────
+  fileDrop.addEventListener("click", (e) => { e.stopPropagation(); fileInput.click(); });
+  fileInput.addEventListener("change", async (e) => {
+    if (e.target.files.length) await handleFiles(e.target.files);
+  });
+
+  let dragCounter = 0;
+  document.body.addEventListener("dragenter", (e) => { e.preventDefault(); dragCounter++; $("drop-overlay").classList.add("active"); });
+  document.body.addEventListener("dragleave", (e) => { e.preventDefault(); dragCounter--; if (dragCounter <= 0) { dragCounter = 0; $("drop-overlay").classList.remove("active"); } });
+  document.body.addEventListener("dragover", (e) => { e.preventDefault(); });
+  document.body.addEventListener("drop", async (e) => {
+    e.preventDefault(); dragCounter = 0;
+    $("drop-overlay").classList.remove("active");
+    if (e.dataTransfer.files.length) await handleFiles(e.dataTransfer.files);
+  });
+
+  async function handleFiles(files) {
+    const fileArr = Array.from(files);
+    const roadsFile = fileArr.find(f => f.name.includes("jalan") || f.name.includes("ruas"));
+    const schoolsFile = fileArr.find(f => f.name.includes("sekolah") || f.name.includes("school"));
+
+    if (!roadsFile && !schoolsFile) {
+      fileStatus.className = "status err";
+      fileStatus.textContent = "Need ruas_jalan.parquet + sekolah_matched.parquet";
+      return;
+    }
+
+    try {
+      if (roadsFile) {
+        fileStatus.className = "status loading";
+        fileStatus.textContent = `Loading ${roadsFile.name} (streaming)...`;
+        roadsGeoJSON = await loadParquetToGeoJSON(roadsFile, (batch, total) => {
+          fileStatus.textContent = `Roads: batch ${batch}, ${total} features...`;
+        });
+        addRoadsLayer();
+      }
+
+      if (schoolsFile) {
+        fileStatus.className = "status loading";
+        fileStatus.textContent = `Loading ${schoolsFile.name} (streaming)...`;
+        schoolsGeoJSON = await loadParquetToGeoJSON(schoolsFile, (batch, total) => {
+          fileStatus.textContent = `Schools: batch ${batch}, ${total} features...`;
+        });
+        addSchoolsLayer();
+      }
+
+      if (roadsGeoJSON && schoolsGeoJSON) {
+        fileDrop.classList.add("loaded");
+        fileStatus.className = "status ok";
+        fileStatus.textContent = `Loaded ${roadsGeoJSON.features.length} roads, ${schoolsGeoJSON.features.length} schools`;
+        showUI(); updateStats(); fitBounds();
+      } else if (roadsGeoJSON) {
+        fileStatus.className = "status ok";
+        fileStatus.textContent = `Loaded ${roadsGeoJSON.features.length} roads. Drop schools next.`;
+      } else if (schoolsGeoJSON) {
+        fileStatus.className = "status ok";
+        fileStatus.textContent = `Loaded ${schoolsGeoJSON.features.length} schools. Drop roads next.`;
+      }
+    } catch (err) {
+      console.error("handleFiles error:", err);
+      fileStatus.className = "status err";
+      fileStatus.textContent = `Error: ${err.message}`;
+    }
+  }
+
+  // ─── Layers ───────────────────────────────────────────────
+  function addRoadsLayer() {
+    if (map.getSource("roads")) { map.getSource("roads").setData(roadsGeoJSON); return; }
+    map.addSource("roads", { type: "geojson", data: roadsGeoJSON });
+    map.addLayer({
+      id: "roads-line", type: "line", source: "roads",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": [
+          "match", ["get", "unit_kerja_kode"],
+          "UPTD-I", UPTD_COLORS["UPTD-I"], "UPTD-II", UPTD_COLORS["UPTD-II"],
+          "UPTD-III", UPTD_COLORS["UPTD-III"], "UPTD-IV", UPTD_COLORS["UPTD-IV"],
+          UPTD_DEFAULT
+        ],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 12, 2.5, 16, 4, 20, 6],
+        "line-opacity": 0.85
+      }
+    });
+  }
+
+  function addSchoolsLayer() {
+    if (map.getSource("schools")) { map.getSource("schools").setData(schoolsGeoJSON); updateFilters(); return; }
+    map.addSource("schools", { type: "geojson", data: schoolsGeoJSON, promoteId: "id" });
+    map.addLayer({
+      id: "schools-circle", type: "circle", source: "schools",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2, 12, 4, 16, 7, 20, 10],
+        "circle-color": [
+          "case",
+          ["==", ["get", "distance_m"], null], "#6b7280",
+          ["interpolate", ["linear"], ["get", "distance_m"],
+            0, "#2166ac", 50, "#67a9cf", 60, "#d1e5f0",
+            100, "#fddbc7", 150, "#ef8a62", 200, "#b2182b", 600, "#b2182b"
+          ]
+        ],
+        "circle-stroke-color": "white",
+        "circle-stroke-width": ["case", ["boolean", ["feature-state", "hover"], false], 2, 0.5],
+        "circle-opacity": 0.9
+      }
+    });
+
+    let hoveredId = null;
+    map.on("mouseenter", "schools-circle", () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mousemove", "schools-circle", (e) => {
+      if (!e.features.length) return;
+      if (hoveredId !== null) map.setFeatureState({ source: "schools", id: hoveredId }, { hover: false });
+      hoveredId = e.features[0].id;
+      map.setFeatureState({ source: "schools", id: hoveredId }, { hover: true });
+    });
+    map.on("mouseleave", "schools-circle", () => {
+      map.getCanvas().style.cursor = "";
+      if (hoveredId !== null) { map.setFeatureState({ source: "schools", id: hoveredId }, { hover: false }); hoveredId = null; }
+    });
+
+    map.on("click", "schools-circle", (e) => {
+      if (!e.features.length) return;
+      const p = e.features[0].properties;
+      const dist = p.distance_m != null ? Number(p.distance_m).toFixed(1) + "m" : "N/A";
+      new maplibregl.Popup({ maxWidth: "300px" })
+        .setLngLat(e.lngLat)
+        .setHTML(`<div>
+          <b>${p["NAMA SEKOLAH"] || "School"}</b><br/>
+          <span style="color:#94a3b8;">${p.Jenjang || ""} &middot; ${p.KABUPATEN || ""}</span><br/><br/>
+          <b>Road:</b> ${p.nearest_road_name || "N/A"} (${p.nearest_road_kode || "N/A"})<br/>
+          <b>Distance:</b> ${dist}<br/>
+          <b>Accreditation:</b> ${p.AKREDITASI || "N/A"}<br/>
+          <b>UPTD:</b> ${p.nearest_road_unit_kerja || "N/A"}
+        </div>`)
+        .addTo(map);
+    });
+  }
+
+  // ─── Filters ──────────────────────────────────────────────
+  function updateFilters() {
+    if (!map.getLayer("schools-circle")) return;
+
+    const filterOn = $("filter-toggle").checked;
+    const maxDist = Number($("dist-slider").value);
+    $("dist-val").textContent = maxDist + "m";
+
+    // Build filter conditions
+    const conditions = [];
+    if (filterOn) {
+      conditions.push(["<=", ["coalesce", ["get", "distance_m"], 99999], maxDist]);
+    }
+    if (activeFilters.size > 0 && activeFilters.size < 4) {
+      conditions.push(["in", ["get", "nearest_road_unit_kerja"], ["literal", Array.from(activeFilters)]]);
+    }
+
+    if (conditions.length === 0) {
+      map.setFilter("schools-circle", null);
+    } else if (conditions.length === 1) {
+      map.setFilter("schools-circle", conditions[0]);
+    } else {
+      map.setFilter("schools-circle", ["all", ...conditions]);
+    }
+
+    const total = schoolsGeoJSON ? schoolsGeoJSON.features.length : 0;
+    const visible = schoolsGeoJSON ? schoolsGeoJSON.features.filter(f => {
+      if (filterOn) {
+        const d = f.properties.distance_m;
+        if (d == null || d > maxDist) return false;
+      }
+      if (activeFilters.size > 0 && activeFilters.size < 4 && !activeFilters.has(f.properties.nearest_road_unit_kerja)) return false;
+      return true;
+    }).length : 0;
+
+    $("visible-count").textContent = visible.toLocaleString();
+    $("total-count").textContent = total.toLocaleString();
+    $("school-badge").textContent = visible.toLocaleString();
+  }
+  $("dist-slider").addEventListener("input", updateFilters);
+
+  // Toggle switch handler
+  $("filter-toggle").addEventListener("change", () => {
+    const on = $("filter-toggle").checked;
+    $("filter-toggle-label").textContent = on ? "Filter ON" : "Filter OFF";
+    $("slider-row").classList.toggle("disabled", !on);
+    updateFilters();
+  });
+
+  // ─── Show UI ──────────────────────────────────────────────
+  function showUI() {
+    $("panel").style.display = "block";
+    $("filter-section").style.display = "block";
+    $("uptd-section").style.display = "block";
+    $("dist-legend-section").style.display = "block";
+    $("legend").style.display = "block";
+
+    if (roadsGeoJSON) {
+      const codes = {};
+      roadsGeoJSON.features.forEach(f => {
+        const c = f.properties.unit_kerja_kode;
+        if (c) codes[c] = (codes[c] || 0) + 1;
+      });
+      const list = $("uptd-list"); list.innerHTML = "";
+      const legendRoads = $("legend-roads"); legendRoads.innerHTML = "";
+
+      Object.entries(codes).sort().forEach(([code, count]) => {
+        activeFilters.add(code);
+        const color = UPTD_COLORS[code] || UPTD_DEFAULT;
+        const item = document.createElement("label");
+        item.className = "uptd-item";
+        item.style.setProperty("--uptd-color", color);
+        item.innerHTML = `<input type="checkbox" checked data-code="${code}" /><span class="color-dot"></span><span class="name">${code}</span><span class="count">${count} roads</span>`;
+        item.querySelector("input").addEventListener("change", (e) => {
+          if (e.target.checked) activeFilters.add(code); else activeFilters.delete(code);
+          updateRoadVisibility(); updateFilters();
+        });
+        list.appendChild(item);
+        const row = document.createElement("div");
+        row.className = "legend-row";
+        row.innerHTML = `<span class="legend-color" style="background:${color}"></span><span>${code}</span>`;
+        legendRoads.appendChild(row);
+      });
+    }
+    updateFilters();
+  }
+
+  function updateRoadVisibility() {
+    if (!map.getLayer("roads-line")) return;
+    if (activeFilters.size >= 4) map.setFilter("roads-line", null);
+    else map.setFilter("roads-line", ["in", ["get", "unit_kerja_kode"], ["literal", Array.from(activeFilters)]]);
+  }
+
+  function updateStats() {
+    if (roadsGeoJSON) $("stat-roads").textContent = roadsGeoJSON.features.length.toLocaleString();
+    if (schoolsGeoJSON) {
+      $("stat-schools").textContent = schoolsGeoJSON.features.length.toLocaleString();
+      $("stat-matched").textContent = schoolsGeoJSON.features.filter(f => f.properties.nearest_road_kode != null).length.toLocaleString();
+      $("stat-nearby").textContent = schoolsGeoJSON.features.filter(f => f.properties.within_60m === true).length.toLocaleString();
+    }
+  }
+
+  function fitBounds() {
+    const coords = [];
+    if (roadsGeoJSON) roadsGeoJSON.features.forEach(f => {
+      const flat = f.geometry.coordinates.flat(2);
+      for (let i = 0; i < flat.length; i += 2) coords.push([flat[i], flat[i+1]]);
+    });
+    if (schoolsGeoJSON) schoolsGeoJSON.features.forEach(f => coords.push(f.geometry.coordinates));
+    if (coords.length) {
+      const bounds = new maplibregl.LngLatBounds();
+      coords.forEach(c => bounds.extend(c));
+      map.fitBounds(bounds, { padding: 40 });
+    }
+  }
+
+  // ─── INIT DONE ────────────────────────────────────────────
+  $("loading").classList.add("hidden");
+  loadStatus.textContent = "";
+  console.log("All dependencies loaded. Ready for data.");
+
+  // Auto-load from server
+  map.on("load", async () => {
+    try {
+      const [roadsResp, schoolsResp] = await Promise.allSettled([
+        fetch("ruas_jalan.parquet"), fetch("sekolah_matched.parquet")
+      ]);
+      if (roadsResp.status === "fulfilled" && roadsResp.value.ok &&
+          schoolsResp.status === "fulfilled" && schoolsResp.value.ok) {
+        console.log("Auto-loading parquet files...");
+
+        roadsGeoJSON = await loadParquetToGeoJSON("ruas_jalan.parquet");
+        addRoadsLayer();
+
+        schoolsGeoJSON = await loadParquetToGeoJSON("sekolah_matched.parquet");
+        addSchoolsLayer();
+
+        fileDrop.classList.add("loaded");
+        fileStatus.className = "status ok";
+        fileStatus.textContent = `Auto-loaded ${roadsGeoJSON.features.length} roads, ${schoolsGeoJSON.features.length} schools`;
+        showUI(); updateStats(); fitBounds();
+      }
+    } catch (e) {
+      console.log("Auto-load not available:", e.message);
+    }
+  });
+</script>
+</body>
+</html>

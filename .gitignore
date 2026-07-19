@@ -1,0 +1,34 @@
+# Data files (too large for git)
+*.parquet
+*.xlsx
+*.xls
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OpenCode internal
+.omo/
+.codegraph/
+.playwright-mcp/
+
+# Temporary
+*.tmp
+*.log
