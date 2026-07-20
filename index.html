@@ -554,38 +554,67 @@
 
   function switchBasemap(bm) {
     if (bm.name === currentBasemap) return;
-    currentBasemap = bm.name;
+    const prevBasemap = currentBasemap;
 
-    // Preserve data GeoJSON (not basemap layers)
-    const savedRoads = roadsGeoJSON;
-    const savedSchools = schoolsGeoJSON;
+    // Fetch the new basemap style JSON
+    fetch(bm.style)
+      .then(r => r.json())
+      .then(newStyle => {
+        const currentStyle = map.getStyle();
+        if (!currentStyle || !currentStyle.layers) return;
 
-    // Switch style
-    map.setStyle(bm.style);
+        const customLayers = ["roads-line", "schools-circle"];
+        const customSources = ["roads", "schools"];
 
-    map.once("style.load", () => {
-      // Re-add data layers from the saved GeoJSON
-      if (savedRoads) {
-        roadsGeoJSON = savedRoads;
-        addRoadsLayer();
-      }
-      if (savedSchools) {
-        schoolsGeoJSON = savedSchools;
-        addSchoolsLayer();
-      }
+        // 1. Remove old basemap layers (top-to-bottom)
+        const oldBasemapLayers = currentStyle.layers
+          .filter(l => !customLayers.includes(l.id))
+          .map(l => l.id)
+          .reverse();
+        oldBasemapLayers.forEach(id => {
+          try { if (map.getLayer(id)) map.removeLayer(id); } catch (e) {}
+        });
 
-      // Restore filters
-      if (savedRoads && savedSchools) {
-        updateFilters();
-        updateRoadVisibility();
-        updateStats();
-      }
-    });
+        // 2. Remove old basemap sources (except custom data sources)
+        Object.keys(currentStyle.sources || {}).forEach(id => {
+          if (!customSources.includes(id)) {
+            try { if (map.getSource(id)) map.removeSource(id); } catch (e) {}
+          }
+        });
 
-    // Update active state in gallery
-    document.querySelectorAll(".basemap-item").forEach((item, i) => {
-      item.classList.toggle("active", BASEMAPS[i].name === bm.name);
-    });
+        // 3. Add new basemap sources
+        Object.entries(newStyle.sources || {}).forEach(([id, src]) => {
+          try { if (!map.getSource(id)) map.addSource(id, src); } catch (e) {
+            console.warn("Source:", id, e);
+          }
+        });
+
+        // 4. Add new basemap layers (add all to top, then move our layers back on top)
+        (newStyle.layers || []).forEach(layer => {
+          try {
+            if (!map.getLayer(layer.id)) map.addLayer(layer);
+          } catch (e) {
+            console.warn("Layer:", layer.id, e);
+          }
+        });
+
+        // 5. Move our data layers to the top so they render above the basemap
+        ["roads-line", "schools-circle"].forEach(id => {
+          try { if (map.getLayer(id)) map.moveLayer(id); } catch (e) {}
+        });
+
+        // Mark as current on success
+        currentBasemap = bm.name;
+
+        // Update active state in gallery
+        document.querySelectorAll(".basemap-item").forEach((item, i) => {
+          item.classList.toggle("active", BASEMAPS[i].name === bm.name);
+        });
+      })
+      .catch(e => {
+        console.error("Failed to switch basemap:", e);
+        currentBasemap = prevBasemap; // revert on failure
+      });
   }
 
   initBasemapGallery();
