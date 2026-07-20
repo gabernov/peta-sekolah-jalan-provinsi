@@ -240,7 +240,7 @@
         Showing <strong id="visible-count">0</strong> of <strong id="total-count">0</strong> schools
       </div>
       <button id="export-btn" style="display:none; margin-top:8px; width:100%; padding:8px; border:none; border-radius:6px; background:#22c55e; color:#0f172a; font-size:12px; font-weight:600; cursor:pointer;">
-        ⬇ Export Filtered to XLSX
+        ⬇ Export 0 to XLSX
       </button>
     </div>
     <div class="section" id="uptd-section" style="display:none;">
@@ -809,6 +809,7 @@
     $("visible-count").textContent = visible.toLocaleString();
     $("total-count").textContent = total.toLocaleString();
     $("school-badge").textContent = visible.toLocaleString();
+    $("export-btn").textContent = `⬇ Export ${visible.toLocaleString()} to XLSX`;
   }
   $("dist-slider").addEventListener("input", updateFilters);
 
