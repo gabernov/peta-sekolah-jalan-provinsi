@@ -528,6 +528,7 @@
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), "bottom-left");
 
   // One-time event handler setup (works even before layers exist)
+  let schoolEventsSetup = false;
   setupSchoolEvents();
 
   // ═══════════════════════════════════════════════════════════
@@ -732,7 +733,6 @@
   }
 
   // One-time school event handler setup (called once, layers handled by MapLibre at event time)
-  let schoolEventsSetup = false;
   function setupSchoolEvents() {
     if (schoolEventsSetup) return;
     schoolEventsSetup = true;
