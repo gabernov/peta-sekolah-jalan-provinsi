@@ -527,6 +527,9 @@
   map.addControl(new maplibregl.NavigationControl(), "top-right");
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), "bottom-left");
 
+  // One-time event handler setup (works even before layers exist)
+  setupSchoolEvents();
+
   // ═══════════════════════════════════════════════════════════
   // BASEMAP GALLERY (from madewithmaplibre.com/basemaps/gallery)
   // ═══════════════════════════════════════════════════════════
@@ -539,6 +542,7 @@
   ];
 
   let currentBasemap = "Liberty";
+  let isSwitchingStyle = false;
 
   function initBasemapGallery() {
     const grid = $("basemap-grid");
@@ -553,9 +557,15 @@
   }
 
   function switchBasemap(bm) {
-    if (bm.name === currentBasemap) return;
+    if (bm.name === currentBasemap || isSwitchingStyle) return;
+    isSwitchingStyle = true;
     const prevBasemap = currentBasemap;
     currentBasemap = bm.name;
+
+    // Update gallery active state immediately
+    document.querySelectorAll(".basemap-item").forEach((item, i) => {
+      item.classList.toggle("active", BASEMAPS[i].name === bm.name);
+    });
 
     // Save data and view state
     const savedRoads = roadsGeoJSON;
@@ -565,90 +575,43 @@
       pitch: map.getPitch(), bearing: map.getBearing()
     };
 
-    // Fetch the new basemap style JSON
-    fetch(bm.style)
-      .then(r => r.json())
-      .then(newStyle => {
-        // Embed our custom layers INTO the new style JSON so MapLibre
-        // creates them as part of the normal style loading process
-        // (uses empty data initially to avoid serializing large GeoJSON)
-        newStyle.sources = newStyle.sources || {};
-        newStyle.layers = newStyle.layers || [];
-        if (savedRoads) {
-          newStyle.sources["roads"] = { type: "geojson", data: emptyFC() };
-          newStyle.layers.push({
-            id: "roads-line", type: "line", source: "roads",
-            layout: { "line-join": "round", "line-cap": "round" },
-            paint: {
-              "line-color": ["match", ["get", "unit_kerja_kode"],
-                "UPTD-I", UPTD_COLORS["UPTD-I"], "UPTD-II", UPTD_COLORS["UPTD-II"],
-                "UPTD-III", UPTD_COLORS["UPTD-III"], "UPTD-IV", UPTD_COLORS["UPTD-IV"],
-                UPTD_DEFAULT],
-              "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 12, 2.5, 16, 4, 20, 6],
-              "line-opacity": 0.85
-            }
-          });
+    const onStyleLoaded = () => {
+      roadsGeoJSON = savedRoads;
+      schoolsGeoJSON = savedSchools;
+      if (savedRoads) addRoadsLayer();
+      if (savedSchools) addSchoolsLayer();
+      map.setCenter(viewState.center);
+      map.setZoom(viewState.zoom);
+      if (viewState.pitch) map.setPitch(viewState.pitch);
+      if (viewState.bearing) map.setBearing(viewState.bearing);
+      if (savedRoads && savedSchools) {
+        updateFilters();
+        updateRoadVisibility();
+        updateStats();
+      }
+      isSwitchingStyle = false;
+    };
+
+    map.once("style.load", onStyleLoaded);
+    map.setStyle(bm.style);
+
+    // Fallback: if style.load never fires, force after 2s
+    setTimeout(() => {
+      if (isSwitchingStyle && savedRoads) {
+        map.off("style.load", onStyleLoaded);
+        roadsGeoJSON = savedRoads;
+        schoolsGeoJSON = savedSchools;
+        if (savedRoads) addRoadsLayer();
+        if (savedSchools) addSchoolsLayer();
+        if (savedRoads && savedSchools) {
+          updateFilters();
+          updateRoadVisibility();
+          updateStats();
         }
-        if (savedSchools) {
-          newStyle.sources["schools"] = { type: "geojson", data: emptyFC(), promoteId: "id" };
-          newStyle.layers.push({
-            id: "schools-circle", type: "circle", source: "schools",
-            paint: {
-              "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2, 12, 4, 16, 7, 20, 10],
-              "circle-color": [
-                "case",
-                ["==", ["get", "distance_m"], null], "#6b7280",
-                ["interpolate", ["linear"], ["get", "distance_m"],
-                  0, "#2166ac", 50, "#67a9cf", 60, "#d1e5f0",
-                  100, "#fddbc7", 150, "#ef8a62", 200, "#b2182b", 600, "#b2182b"]
-              ],
-              "circle-stroke-color": "white",
-              "circle-stroke-width": ["case", ["boolean", ["feature-state", "hover"], false], 2, 0.5],
-              "circle-opacity": 0.9
-            }
-          });
-        }
-
-        // Pass the merged style OBJECT (not URL) to setStyle
-        map.setStyle(newStyle);
-
-        // On style load, populate actual data and restore view
-        map.once("style.load", () => {
-          if (savedRoads) {
-            roadsGeoJSON = savedRoads;
-            try { map.getSource("roads").setData(savedRoads); } catch (e) {}
-          }
-          if (savedSchools) {
-            schoolsGeoJSON = savedSchools;
-            try { map.getSource("schools").setData(savedSchools); } catch (e) {}
-          }
-          map.setCenter(viewState.center);
-          map.setZoom(viewState.zoom);
-          if (viewState.pitch) map.setPitch(viewState.pitch);
-          if (viewState.bearing) map.setBearing(viewState.bearing);
-          if (savedRoads && savedSchools) {
-            updateFilters();
-            updateRoadVisibility();
-            updateStats();
-          }
-        });
-      })
-      .catch(e => {
-        console.error("Failed to switch basemap:", e);
-        currentBasemap = prevBasemap;
-        // Revert gallery active state
-        document.querySelectorAll(".basemap-item").forEach((item, i) => {
-          item.classList.toggle("active", BASEMAPS[i].name === prevBasemap);
-        });
-      });
-
-    // Update active state in gallery
-    document.querySelectorAll(".basemap-item").forEach((item, i) => {
-      item.classList.toggle("active", BASEMAPS[i].name === bm.name);
-    });
+        isSwitchingStyle = false;
+      }
+    }, 2000);
   }
-
-  function emptyFC() { return { type: "FeatureCollection", features: [] }; }
 
   initBasemapGallery();
 
@@ -766,7 +729,13 @@
         "circle-opacity": 0.9
       }
     });
+  }
 
+  // One-time school event handler setup (called once, layers handled by MapLibre at event time)
+  let schoolEventsSetup = false;
+  function setupSchoolEvents() {
+    if (schoolEventsSetup) return;
+    schoolEventsSetup = true;
     let hoveredId = null;
     map.on("mouseenter", "schools-circle", () => { map.getCanvas().style.cursor = "pointer"; });
     map.on("mousemove", "schools-circle", (e) => {
@@ -779,7 +748,6 @@
       map.getCanvas().style.cursor = "";
       if (hoveredId !== null) { map.setFeatureState({ source: "schools", id: hoveredId }, { hover: false }); hoveredId = null; }
     });
-
     map.on("click", "schools-circle", (e) => {
       if (!e.features.length) return;
       const p = e.features[0].properties;
