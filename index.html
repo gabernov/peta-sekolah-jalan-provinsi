@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Peta Jalan Provinsi - School Distance Visualizer</title>
+  <title>Peta Jalan Provinsi — School Distance Visualizer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏫</text></svg>">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #0f172a; }
@@ -237,6 +239,9 @@
       <div id="filter-count">
         Showing <strong id="visible-count">0</strong> of <strong id="total-count">0</strong> schools
       </div>
+      <button id="export-btn" style="display:none; margin-top:8px; width:100%; padding:8px; border:none; border-radius:6px; background:#22c55e; color:#0f172a; font-size:12px; font-weight:600; cursor:pointer;">
+        ⬇ Export Filtered to XLSX
+      </button>
     </div>
     <div class="section" id="uptd-section" style="display:none;">
       <div class="section-title">Road Management (UPTD)</div>
@@ -815,6 +820,53 @@
     updateFilters();
   });
 
+  // ─── Export filtered schools to XLSX ──────────────────────────
+  function exportFilteredSchools() {
+    if (!schoolsGeoJSON || typeof XLSX === "undefined") return;
+
+    const filterOn = $("filter-toggle").checked;
+    const maxDist = Number($("dist-slider").value);
+
+    // Gather filtered features (same logic as updateFilters)
+    const filtered = schoolsGeoJSON.features.filter(f => {
+      if (filterOn) {
+        const d = f.properties.distance_m;
+        if (d == null || d > maxDist) return false;
+      }
+      if (activeFilters.size > 0 && activeFilters.size < 4 && !activeFilters.has(f.properties.nearest_road_unit_kerja)) return false;
+      return true;
+    });
+
+    // Build header + rows from all non-geometry properties
+    const skipKeys = new Set(["geometry", "geometry_bbox", "wkb_geometry", "geom"]);
+    const allKeys = [];
+    filtered.forEach(f => {
+      for (const k of Object.keys(f.properties)) {
+        if (!skipKeys.has(k) && !allKeys.includes(k)) allKeys.push(k);
+      }
+    });
+
+    const rows = filtered.map(f => {
+      const row = {};
+      allKeys.forEach(k => { row[k] = f.properties[k] ?? ""; });
+      return row;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Filtered Schools");
+
+    // Build filename: sekolah_terfilter_{count}_baris_{YYYY-MM-DD}_{HHmm}.xlsx
+    const now = new Date();
+    const pad = n => String(n).padStart(2, "0");
+    const dateStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    const timeStr = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+    const filename = `sekolah_terfilter_${filtered.length}_baris_${dateStr}_${timeStr}.xlsx`;
+
+    XLSX.writeFile(wb, filename);
+  }
+  $("export-btn").addEventListener("click", exportFilteredSchools);
+
   // ─── Show UI ──────────────────────────────────────────────
   function showUI() {
     $("panel").style.display = "block";
@@ -825,6 +877,7 @@
     $("legend").style.display = "block";
 
     if (roadsGeoJSON) {
+      $("export-btn").style.display = "block";
       const codes = {};
       roadsGeoJSON.features.forEach(f => {
         const c = f.properties.unit_kerja_kode;
