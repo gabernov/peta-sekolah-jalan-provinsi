@@ -554,67 +554,98 @@
 
   function switchBasemap(bm) {
     if (bm.name === currentBasemap) return;
-    const prevBasemap = currentBasemap;
+    currentBasemap = bm.name;
 
-    // Fetch the new basemap style JSON
-    fetch(bm.style)
-      .then(r => r.json())
-      .then(newStyle => {
-        const currentStyle = map.getStyle();
-        if (!currentStyle || !currentStyle.layers) return;
+    // Save data references and map state
+    const savedRoads = roadsGeoJSON;
+    const savedSchools = schoolsGeoJSON;
+    const center = map.getCenter();
+    const zoom = map.getZoom();
+    const pitch = map.getPitch();
+    const bearing = map.getBearing();
 
-        const customLayers = ["roads-line", "schools-circle"];
-        const customSources = ["roads", "schools"];
+    let restored = false;
+    function restoreData() {
+      if (restored) return;
+      if (!map.isStyleLoaded()) { setTimeout(restoreData, 200); return; }
+      restored = true;
 
-        // 1. Remove old basemap layers (top-to-bottom)
-        const oldBasemapLayers = currentStyle.layers
-          .filter(l => !customLayers.includes(l.id))
-          .map(l => l.id)
-          .reverse();
-        oldBasemapLayers.forEach(id => {
-          try { if (map.getLayer(id)) map.removeLayer(id); } catch (e) {}
-        });
-
-        // 2. Remove old basemap sources (except custom data sources)
-        Object.keys(currentStyle.sources || {}).forEach(id => {
-          if (!customSources.includes(id)) {
-            try { if (map.getSource(id)) map.removeSource(id); } catch (e) {}
+      try {
+        if (savedRoads) {
+          roadsGeoJSON = savedRoads;
+          if (!map.getSource("roads")) {
+            map.addSource("roads", { type: "geojson", data: savedRoads });
+            map.addLayer({
+              id: "roads-line", type: "line", source: "roads",
+              layout: { "line-join": "round", "line-cap": "round" },
+              paint: {
+                "line-color": ["match", ["get", "unit_kerja_kode"],
+                  "UPTD-I", UPTD_COLORS["UPTD-I"], "UPTD-II", UPTD_COLORS["UPTD-II"],
+                  "UPTD-III", UPTD_COLORS["UPTD-III"], "UPTD-IV", UPTD_COLORS["UPTD-IV"],
+                  UPTD_DEFAULT],
+                "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 12, 2.5, 16, 4, 20, 6],
+                "line-opacity": 0.85
+              }
+            });
+          } else {
+            map.getSource("roads").setData(savedRoads);
           }
-        });
+        }
 
-        // 3. Add new basemap sources
-        Object.entries(newStyle.sources || {}).forEach(([id, src]) => {
-          try { if (!map.getSource(id)) map.addSource(id, src); } catch (e) {
-            console.warn("Source:", id, e);
+        if (savedSchools) {
+          schoolsGeoJSON = savedSchools;
+          if (!map.getSource("schools")) {
+            map.addSource("schools", { type: "geojson", data: savedSchools, promoteId: "id" });
+            map.addLayer({
+              id: "schools-circle", type: "circle", source: "schools",
+              paint: {
+                "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2, 12, 4, 16, 7, 20, 10],
+                "circle-color": [
+                  "case",
+                  ["==", ["get", "distance_m"], null], "#6b7280",
+                  ["interpolate", ["linear"], ["get", "distance_m"],
+                    0, "#2166ac", 50, "#67a9cf", 60, "#d1e5f0",
+                    100, "#fddbc7", 150, "#ef8a62", 200, "#b2182b", 600, "#b2182b"]
+                ],
+                "circle-stroke-color": "white",
+                "circle-stroke-width": ["case", ["boolean", ["feature-state", "hover"], false], 2, 0.5],
+                "circle-opacity": 0.9
+              }
+            });
+          } else {
+            map.getSource("schools").setData(savedSchools);
           }
-        });
+        }
 
-        // 4. Add new basemap layers (add all to top, then move our layers back on top)
-        (newStyle.layers || []).forEach(layer => {
-          try {
-            if (!map.getLayer(layer.id)) map.addLayer(layer);
-          } catch (e) {
-            console.warn("Layer:", layer.id, e);
-          }
-        });
+        // Restore view
+        map.setCenter(center);
+        map.setZoom(zoom);
+        if (pitch) map.setPitch(pitch);
+        if (bearing) map.setBearing(bearing);
 
-        // 5. Move our data layers to the top so they render above the basemap
-        ["roads-line", "schools-circle"].forEach(id => {
-          try { if (map.getLayer(id)) map.moveLayer(id); } catch (e) {}
-        });
+        // Restore filters
+        if (savedRoads && savedSchools) {
+          updateFilters();
+          updateRoadVisibility();
+          updateStats();
+        }
+      } catch (e) {
+        console.error("Failed to restore data layers:", e);
+        setTimeout(restoreData, 500);
+        restored = false;
+      }
+    }
 
-        // Mark as current on success
-        currentBasemap = bm.name;
+    // Switch basemap
+    map.setStyle(bm.style);
+    map.once("style.load", () => setTimeout(restoreData, 100));
+    // Fallback: if style.load doesn't fire, try after 5s
+    setTimeout(() => { if (!restored && savedRoads) restoreData(); }, 5000);
 
-        // Update active state in gallery
-        document.querySelectorAll(".basemap-item").forEach((item, i) => {
-          item.classList.toggle("active", BASEMAPS[i].name === bm.name);
-        });
-      })
-      .catch(e => {
-        console.error("Failed to switch basemap:", e);
-        currentBasemap = prevBasemap; // revert on failure
-      });
+    // Update active state in gallery
+    document.querySelectorAll(".basemap-item").forEach((item, i) => {
+      item.classList.toggle("active", BASEMAPS[i].name === bm.name);
+    });
   }
 
   initBasemapGallery();
