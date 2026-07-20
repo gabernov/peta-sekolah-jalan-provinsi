@@ -554,99 +554,101 @@
 
   function switchBasemap(bm) {
     if (bm.name === currentBasemap) return;
+    const prevBasemap = currentBasemap;
     currentBasemap = bm.name;
 
-    // Save data references and map state
+    // Save data and view state
     const savedRoads = roadsGeoJSON;
     const savedSchools = schoolsGeoJSON;
-    const center = map.getCenter();
-    const zoom = map.getZoom();
-    const pitch = map.getPitch();
-    const bearing = map.getBearing();
+    const viewState = {
+      center: map.getCenter(), zoom: map.getZoom(),
+      pitch: map.getPitch(), bearing: map.getBearing()
+    };
 
-    let restored = false;
-    function restoreData() {
-      if (restored) return;
-      if (!map.isStyleLoaded()) { setTimeout(restoreData, 200); return; }
-      restored = true;
-
-      try {
+    // Fetch the new basemap style JSON
+    fetch(bm.style)
+      .then(r => r.json())
+      .then(newStyle => {
+        // Embed our custom layers INTO the new style JSON so MapLibre
+        // creates them as part of the normal style loading process
+        // (uses empty data initially to avoid serializing large GeoJSON)
+        newStyle.sources = newStyle.sources || {};
+        newStyle.layers = newStyle.layers || [];
         if (savedRoads) {
-          roadsGeoJSON = savedRoads;
-          if (!map.getSource("roads")) {
-            map.addSource("roads", { type: "geojson", data: savedRoads });
-            map.addLayer({
-              id: "roads-line", type: "line", source: "roads",
-              layout: { "line-join": "round", "line-cap": "round" },
-              paint: {
-                "line-color": ["match", ["get", "unit_kerja_kode"],
-                  "UPTD-I", UPTD_COLORS["UPTD-I"], "UPTD-II", UPTD_COLORS["UPTD-II"],
-                  "UPTD-III", UPTD_COLORS["UPTD-III"], "UPTD-IV", UPTD_COLORS["UPTD-IV"],
-                  UPTD_DEFAULT],
-                "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 12, 2.5, 16, 4, 20, 6],
-                "line-opacity": 0.85
-              }
-            });
-          } else {
-            map.getSource("roads").setData(savedRoads);
-          }
+          newStyle.sources["roads"] = { type: "geojson", data: emptyFC() };
+          newStyle.layers.push({
+            id: "roads-line", type: "line", source: "roads",
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: {
+              "line-color": ["match", ["get", "unit_kerja_kode"],
+                "UPTD-I", UPTD_COLORS["UPTD-I"], "UPTD-II", UPTD_COLORS["UPTD-II"],
+                "UPTD-III", UPTD_COLORS["UPTD-III"], "UPTD-IV", UPTD_COLORS["UPTD-IV"],
+                UPTD_DEFAULT],
+              "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 12, 2.5, 16, 4, 20, 6],
+              "line-opacity": 0.85
+            }
+          });
         }
-
         if (savedSchools) {
-          schoolsGeoJSON = savedSchools;
-          if (!map.getSource("schools")) {
-            map.addSource("schools", { type: "geojson", data: savedSchools, promoteId: "id" });
-            map.addLayer({
-              id: "schools-circle", type: "circle", source: "schools",
-              paint: {
-                "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2, 12, 4, 16, 7, 20, 10],
-                "circle-color": [
-                  "case",
-                  ["==", ["get", "distance_m"], null], "#6b7280",
-                  ["interpolate", ["linear"], ["get", "distance_m"],
-                    0, "#2166ac", 50, "#67a9cf", 60, "#d1e5f0",
-                    100, "#fddbc7", 150, "#ef8a62", 200, "#b2182b", 600, "#b2182b"]
-                ],
-                "circle-stroke-color": "white",
-                "circle-stroke-width": ["case", ["boolean", ["feature-state", "hover"], false], 2, 0.5],
-                "circle-opacity": 0.9
-              }
-            });
-          } else {
-            map.getSource("schools").setData(savedSchools);
+          newStyle.sources["schools"] = { type: "geojson", data: emptyFC(), promoteId: "id" };
+          newStyle.layers.push({
+            id: "schools-circle", type: "circle", source: "schools",
+            paint: {
+              "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2, 12, 4, 16, 7, 20, 10],
+              "circle-color": [
+                "case",
+                ["==", ["get", "distance_m"], null], "#6b7280",
+                ["interpolate", ["linear"], ["get", "distance_m"],
+                  0, "#2166ac", 50, "#67a9cf", 60, "#d1e5f0",
+                  100, "#fddbc7", 150, "#ef8a62", 200, "#b2182b", 600, "#b2182b"]
+              ],
+              "circle-stroke-color": "white",
+              "circle-stroke-width": ["case", ["boolean", ["feature-state", "hover"], false], 2, 0.5],
+              "circle-opacity": 0.9
+            }
+          });
+        }
+
+        // Pass the merged style OBJECT (not URL) to setStyle
+        map.setStyle(newStyle);
+
+        // On style load, populate actual data and restore view
+        map.once("style.load", () => {
+          if (savedRoads) {
+            roadsGeoJSON = savedRoads;
+            try { map.getSource("roads").setData(savedRoads); } catch (e) {}
           }
-        }
-
-        // Restore view
-        map.setCenter(center);
-        map.setZoom(zoom);
-        if (pitch) map.setPitch(pitch);
-        if (bearing) map.setBearing(bearing);
-
-        // Restore filters
-        if (savedRoads && savedSchools) {
-          updateFilters();
-          updateRoadVisibility();
-          updateStats();
-        }
-      } catch (e) {
-        console.error("Failed to restore data layers:", e);
-        setTimeout(restoreData, 500);
-        restored = false;
-      }
-    }
-
-    // Switch basemap
-    map.setStyle(bm.style);
-    map.once("style.load", () => setTimeout(restoreData, 100));
-    // Fallback: if style.load doesn't fire, try after 5s
-    setTimeout(() => { if (!restored && savedRoads) restoreData(); }, 5000);
+          if (savedSchools) {
+            schoolsGeoJSON = savedSchools;
+            try { map.getSource("schools").setData(savedSchools); } catch (e) {}
+          }
+          map.setCenter(viewState.center);
+          map.setZoom(viewState.zoom);
+          if (viewState.pitch) map.setPitch(viewState.pitch);
+          if (viewState.bearing) map.setBearing(viewState.bearing);
+          if (savedRoads && savedSchools) {
+            updateFilters();
+            updateRoadVisibility();
+            updateStats();
+          }
+        });
+      })
+      .catch(e => {
+        console.error("Failed to switch basemap:", e);
+        currentBasemap = prevBasemap;
+        // Revert gallery active state
+        document.querySelectorAll(".basemap-item").forEach((item, i) => {
+          item.classList.toggle("active", BASEMAPS[i].name === prevBasemap);
+        });
+      });
 
     // Update active state in gallery
     document.querySelectorAll(".basemap-item").forEach((item, i) => {
       item.classList.toggle("active", BASEMAPS[i].name === bm.name);
     });
   }
+
+  function emptyFC() { return { type: "FeatureCollection", features: [] }; }
 
   initBasemapGallery();
 
