@@ -303,7 +303,7 @@
 
   const map = new maplibregl.Map({
     container: "map",
-    style: "https://tiles.openfreemap.org/styles/dark",
+    style: "https://tiles.openfreemap.org/styles/bright",
     center: [0, 20],
     zoom: 1.5,
   });
@@ -315,13 +315,19 @@
     map.setProjection({ type: "globe" });
   });
 
-  // Starfield — add behind all layers on first load
-  map.once("load", () => {
+  // Starfield — reusable function to add behind all layers
+  function addStarfield() {
+    if (map.getLayer("starfield")) map.removeLayer("starfield");
     const starfield = new MaplibreStarfieldLayer({
       starCount: 4000,
       starSize: 2.0,
     });
     map.addLayer(starfield, map.getStyle().layers[0]?.id);
+  }
+
+  // Add starfield on first load
+  map.once("load", () => {
+    addStarfield();
   });
 
   // ─── One-time school event handler setup ───────────────
@@ -584,7 +590,7 @@
     { name: "Fiord", style: "https://tiles.openfreemap.org/styles/fiord", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-fiord.webp" },
   ];
 
-  let currentBasemap = "Dark";
+  let currentBasemap = "Bright";
   let isSwitchingStyle = false;
 
   function initBasemapGallery() {
@@ -619,6 +625,11 @@
     };
 
     const onStyleLoaded = () => {
+      // Re-add starfield after style change
+      addStarfield();
+      // Re-set globe projection after style change
+      map.setProjection({ type: "globe" });
+
       roadsGeoJSON = savedRoads;
       schoolsGeoJSON = savedSchools;
       if (savedRoads) addRoadsLayer();
@@ -642,6 +653,9 @@
     setTimeout(() => {
       if (isSwitchingStyle && savedRoads) {
         map.off("style.load", onStyleLoaded);
+        // Re-add starfield and projection in fallback too
+        addStarfield();
+        map.setProjection({ type: "globe" });
         roadsGeoJSON = savedRoads;
         schoolsGeoJSON = savedSchools;
         if (savedRoads) addRoadsLayer();
@@ -972,24 +986,32 @@
         fileStatus.textContent = `Auto-loaded ${roadsGeoJSON.features.length} roads, ${schoolsGeoJSON.features.length} schools`;
         showUI(); updateStats();
 
-        // Fly from globe view to data bounds (validate coords)
-        try {
-          const bounds = new maplibregl.LngLatBounds();
-          roadsGeoJSON.features.forEach(f => {
-            f.geometry.coordinates.flat(2).forEach((_, i, a) => {
-              if (i % 2 === 0 && a[i] >= -180 && a[i] <= 180 && a[i+1] >= -90 && a[i+1] <= 90)
-                bounds.extend([a[i], a[i+1]]);
+        // Fly from globe view to data bounds (with delay to ensure globe projection is ready)
+        setTimeout(() => {
+          try {
+            const bounds = new maplibregl.LngLatBounds();
+            roadsGeoJSON.features.forEach(f => {
+              f.geometry.coordinates.flat(2).forEach((_, i, a) => {
+                if (i % 2 === 0 && a[i] >= -180 && a[i] <= 180 && a[i+1] >= -90 && a[i+1] <= 90)
+                  bounds.extend([a[i], a[i+1]]);
+              });
             });
-          });
-          schoolsGeoJSON.features.forEach(f => {
-            const c = f.geometry.coordinates;
-            if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90)
-              bounds.extend(c);
-          });
-          if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 40, duration: 2500 });
-        } catch (e) {
-          console.log("fitBounds skipped:", e.message);
-        }
+            schoolsGeoJSON.features.forEach(f => {
+              const c = f.geometry.coordinates;
+              if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90)
+                bounds.extend(c);
+            });
+            console.log("Fly-to bounds:", bounds.getNorthEast(), bounds.getSouthWest());
+            if (!bounds.isEmpty()) {
+              map.fitBounds(bounds, { padding: 40, duration: 2500 });
+              console.log("Fly-to triggered with duration 2500ms");
+            } else {
+              console.warn("Fly-to bounds empty, skipping");
+            }
+          } catch (e) {
+            console.error("Fly-to error:", e);
+          }
+        }, 500);
       }
     } catch (e) {
       console.log("Auto-load not available:", e.message);
