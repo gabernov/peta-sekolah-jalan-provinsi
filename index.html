@@ -263,14 +263,14 @@
         <span>0m</span><span>50m</span><span>60m</span><span>100m</span><span>150m</span><span>200m</span><span>600m+</span>
       </div>
     </div>
-    <div class="section" id="basemap-section" style="display:none;">
+    <div class="section" id="basemap-section">
       <div class="section-title">Basemap</div>
       <div class="basemap-grid" id="basemap-grid"></div>
     </div>
   </div>
 </div>
 
-<div id="legend" style="display:none;">
+<div id="legend">
   <h4>Road by UPTD</h4>
   <div id="legend-roads"></div>
   <div style="margin-top:10px;">
@@ -429,22 +429,20 @@
   // ═══════════════════════════════════════════════════════════
   let arrow, parquet;
   const wasmReady = (async () => {
-    console.log("Loading WASM in background...");
+    loadStatus.textContent = "Loading Arrow library...";
     arrow = await import("https://esm.sh/apache-arrow");
-    console.log("Arrow loaded");
+    loadStatus.textContent = "Loading parquet-wasm...";
     parquet = await import("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm.js");
-    console.log("parquet-wasm module loaded, exports:", Object.keys(parquet));
+    loadStatus.textContent = "Initializing WASM runtime...";
     try {
       await parquet.default();
-      console.log("parquet-wasm initialized via parquet.default()");
     } catch (e) {
       console.warn("parquet.default() failed, trying initSync fallback:", e.message);
       const wasmResp = await fetch("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm_bg.wasm");
       const wasmModule = await WebAssembly.compile(await wasmResp.arrayBuffer());
       parquet.initSync(wasmModule);
-      console.log("parquet-wasm initialized via initSync()");
     }
-    console.log("WASM ready. Waiting for data...");
+    loadStatus.textContent = "WASM ready. Loading data...";
     return true;
   })();
 
@@ -948,12 +946,10 @@
     // Hide the map loading overlay — UI is already visible
     $("loading").classList.add("hidden");
 
-    // Show data-dependent sections
+    // Show data-dependent sections (filter, UPTD, distance legend)
     $("filter-section").style.display = "block";
     $("uptd-section").style.display = "block";
     $("dist-legend-section").style.display = "block";
-    $("basemap-section").style.display = "block";
-    $("legend").style.display = "block";
 
     if (roadsGeoJSON) {
       $("export-btn").style.display = "block";
@@ -1020,28 +1016,33 @@
 
   // Auto-load parquet when both WASM and map are ready
   (async () => {
+    loadStatus.textContent = "Waiting for WASM modules...";
     await wasmReady;  // wait for WASM in background
 
     // Wait for map to finish loading (globe + starfield rendered)
+    loadStatus.textContent = "Loading map tiles...";
     await new Promise(resolve => {
       if (map.loaded()) resolve();
       else map.once("load", resolve);
     });
 
     try {
+      loadStatus.textContent = "Fetching parquet files...";
       const [roadsResp, schoolsResp] = await Promise.allSettled([
         fetch("ruas_jalan.parquet"), fetch("sekolah_matched.parquet")
       ]);
       if (roadsResp.status === "fulfilled" && roadsResp.value.ok &&
           schoolsResp.status === "fulfilled" && schoolsResp.value.ok) {
-        console.log("Auto-loading parquet files...");
 
+        loadStatus.textContent = "Parsing roads (ruas_jalan.parquet)...";
         roadsGeoJSON = await loadParquetToGeoJSON("ruas_jalan.parquet");
         addRoadsLayer();
 
+        loadStatus.textContent = "Parsing schools (sekolah_matched.parquet)...";
         schoolsGeoJSON = await loadParquetToGeoJSON("sekolah_matched.parquet");
         addSchoolsLayer();
 
+        loadStatus.textContent = "Rendering layers...";
         fileDrop.classList.add("loaded");
         fileStatus.className = "status ok";
         fileStatus.textContent = `Auto-loaded ${roadsGeoJSON.features.length} roads, ${schoolsGeoJSON.features.length} schools`;
