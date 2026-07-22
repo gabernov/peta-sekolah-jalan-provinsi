@@ -8,16 +8,23 @@
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "@geoql/maplibre-gl-starfield": "https://esm.sh/@geoql/maplibre-gl-starfield@0.1.1"
+    }
+  }
+  </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #0f172a; }
     #map { position: absolute; top: 0; bottom: 0; width: 100%; }
 
-    /* Loading overlay */
+    /* Loading overlay — hidden by default, shown on error */
     #loading {
       position: fixed; inset: 0; z-index: 2000;
       background: rgba(15, 23, 42, 0.95);
-      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      display: none; flex-direction: column; justify-content: center; align-items: center;
       color: #e2e8f0; font-size: 14px;
     }
     #loading.hidden { display: none; }
@@ -277,56 +284,104 @@
 
 <script type="module">
   // ═══════════════════════════════════════════════════════════
-  // STEP 1: IMPORT DEPENDENCIES (matching geoparquet-visualizer)
+  // STEP 0: IMPORTS
+  // ═══════════════════════════════════════════════════════════
+  import { MaplibreStarfieldLayer } from '@geoql/maplibre-gl-starfield';
+
+  // ═══════════════════════════════════════════════════════════
+  // STEP 1: UTILITY + MAP (creates immediately, no waiting)
   // ═══════════════════════════════════════════════════════════
   const $ = id => document.getElementById(id);
   const loadStatus = $("load-status");
   const loadError = $("load-error");
 
-  loadStatus.textContent = "Loading Apache Arrow from esm.sh...";
-  let arrow;
-  try {
-    arrow = await import("https://esm.sh/apache-arrow");
-    console.log("Arrow loaded");
-  } catch (e) {
-    loadError.textContent = "Failed to load Apache Arrow: " + e.message;
-    throw e;
-  }
+  const UPTD_COLORS = {
+    "UPTD-I": "#e41a1c", "UPTD-II": "#377eb8",
+    "UPTD-III": "#4daf4a", "UPTD-IV": "#984ea3",
+  };
+  const UPTD_DEFAULT = "#999999";
 
-  loadStatus.textContent = "Loading parquet-wasm from jsdelivr...";
-  let parquet;
-  try {
-    parquet = await import("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm.js");
-    console.log("parquet-wasm module loaded, exports:", Object.keys(parquet));
-  } catch (e) {
-    loadError.textContent = "Failed to load parquet-wasm: " + e.message;
-    throw e;
-  }
+  const map = new maplibregl.Map({
+    container: "map",
+    style: "https://tiles.openfreemap.org/styles/dark",
+    center: [0, 20],
+    zoom: 1.5,
+    projection: { type: 'globe' },
+  });
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), "bottom-left");
 
-  loadStatus.textContent = "Initializing WASM binary...";
-  try {
-    // Exactly like geoparquet-visualizer: await parquet.default()
-    await parquet.default();
-    console.log("parquet-wasm initialized via parquet.default()");
-  } catch (e) {
-    // Fallback: try initSync with explicit WASM compilation
-    console.warn("parquet.default() failed, trying initSync fallback:", e.message);
-    try {
-      const wasmResp = await fetch("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm_bg.wasm");
-      const wasmBytes = await wasmResp.arrayBuffer();
-      const wasmModule = await WebAssembly.compile(wasmBytes);
-      parquet.initSync(wasmModule);
-      console.log("parquet-wasm initialized via initSync()");
-    } catch (e2) {
-      loadError.textContent = "Failed to init WASM: " + e.message + " | " + e2.message;
-      throw e2;
-    }
-  }
+  // Starfield — add behind all layers on first load
+  map.once("load", () => {
+    const starfield = new MaplibreStarfieldLayer({
+      starCount: 4000,
+      starSize: 2.0,
+    });
+    map.addLayer(starfield, map.getStyle().layers[0]?.id);
+  });
 
-  loadStatus.textContent = "WASM ready. Waiting for data...";
+  // ─── One-time school event handler setup ───────────────
+  let schoolEventsSetup = false;
+  function setupSchoolEvents() {
+    if (schoolEventsSetup) return;
+    schoolEventsSetup = true;
+    let hoveredId = null;
+    map.on("mouseenter", "schools-circle", () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mousemove", "schools-circle", (e) => {
+      if (!e.features.length) return;
+      if (hoveredId !== null) map.setFeatureState({ source: "schools", id: hoveredId }, { hover: false });
+      hoveredId = e.features[0].id;
+      map.setFeatureState({ source: "schools", id: hoveredId }, { hover: true });
+    });
+    map.on("mouseleave", "schools-circle", () => {
+      map.getCanvas().style.cursor = "";
+      if (hoveredId !== null) { map.setFeatureState({ source: "schools", id: hoveredId }, { hover: false }); hoveredId = null; }
+    });
+    map.on("click", "schools-circle", (e) => {
+      if (!e.features.length) return;
+      const p = e.features[0].properties;
+      const dist = p.distance_m != null ? Number(p.distance_m).toFixed(1) + "m" : "N/A";
+      new maplibregl.Popup({ maxWidth: "300px" })
+        .setLngLat(e.lngLat)
+        .setHTML(`<div>
+          <b>${p["NAMA SEKOLAH"] || "School"}</b><br/>
+          <span style="color:#94a3b8;">${p.Jenjang || ""} &middot; ${p.KABUPATEN || ""}</span><br/><br/>
+          <b>Road:</b> ${p.nearest_road_name || "N/A"} (${p.nearest_road_kode || "N/A"})<br/>
+          <b>Distance:</b> ${dist}<br/>
+          <b>Accreditation:</b> ${p.AKREDITASI || "N/A"}<br/>
+          <b>UPTD:</b> ${p.nearest_road_unit_kerja || "N/A"}
+        </div>`)
+        .addTo(map);
+    });
+  }
+  setupSchoolEvents();
 
   // ═══════════════════════════════════════════════════════════
-  // STEP 2: WKB PARSER (from geoparquet-visualizer)
+  // STEP 2: LOAD WASM DEPENDENCIES IN BACKGROUND
+  // ═══════════════════════════════════════════════════════════
+  let arrow, parquet;
+  const wasmReady = (async () => {
+    console.log("Loading WASM in background...");
+    arrow = await import("https://esm.sh/apache-arrow");
+    console.log("Arrow loaded");
+    parquet = await import("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm.js");
+    console.log("parquet-wasm module loaded, exports:", Object.keys(parquet));
+    try {
+      await parquet.default();
+      console.log("parquet-wasm initialized via parquet.default()");
+    } catch (e) {
+      console.warn("parquet.default() failed, trying initSync fallback:", e.message);
+      const wasmResp = await fetch("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm_bg.wasm");
+      const wasmModule = await WebAssembly.compile(await wasmResp.arrayBuffer());
+      parquet.initSync(wasmModule);
+      console.log("parquet-wasm initialized via initSync()");
+    }
+    console.log("WASM ready. Waiting for data...");
+    return true;
+  })();
+
+  // ═══════════════════════════════════════════════════════════
+  // STEP 3: WKB PARSER (from geoparquet-visualizer)
   // ═══════════════════════════════════════════════════════════
   function parseWKB(wkbBuffer) {
     try {
@@ -515,28 +570,6 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // STEP 4: MAP + LAYERS + FILTERS
-  // ═══════════════════════════════════════════════════════════
-  const UPTD_COLORS = {
-    "UPTD-I": "#e41a1c", "UPTD-II": "#377eb8",
-    "UPTD-III": "#4daf4a", "UPTD-IV": "#984ea3",
-  };
-  const UPTD_DEFAULT = "#999999";
-
-  const map = new maplibregl.Map({
-    container: "map",
-    style: "https://tiles.openfreemap.org/styles/liberty",
-    center: [107.6, -6.9],
-    zoom: 9,
-  });
-  map.addControl(new maplibregl.NavigationControl(), "top-right");
-  map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), "bottom-left");
-
-  // One-time event handler setup (works even before layers exist)
-  let schoolEventsSetup = false;
-  setupSchoolEvents();
-
-  // ═══════════════════════════════════════════════════════════
   // BASEMAP GALLERY (from madewithmaplibre.com/basemaps/gallery)
   // ═══════════════════════════════════════════════════════════
   const BASEMAPS = [
@@ -547,7 +580,7 @@
     { name: "Fiord", style: "https://tiles.openfreemap.org/styles/fiord", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-fiord.webp" },
   ];
 
-  let currentBasemap = "Liberty";
+  let currentBasemap = "Dark";
   let isSwitchingStyle = false;
 
   function initBasemapGallery() {
@@ -737,40 +770,6 @@
     });
   }
 
-  // One-time school event handler setup (called once, layers handled by MapLibre at event time)
-  function setupSchoolEvents() {
-    if (schoolEventsSetup) return;
-    schoolEventsSetup = true;
-    let hoveredId = null;
-    map.on("mouseenter", "schools-circle", () => { map.getCanvas().style.cursor = "pointer"; });
-    map.on("mousemove", "schools-circle", (e) => {
-      if (!e.features.length) return;
-      if (hoveredId !== null) map.setFeatureState({ source: "schools", id: hoveredId }, { hover: false });
-      hoveredId = e.features[0].id;
-      map.setFeatureState({ source: "schools", id: hoveredId }, { hover: true });
-    });
-    map.on("mouseleave", "schools-circle", () => {
-      map.getCanvas().style.cursor = "";
-      if (hoveredId !== null) { map.setFeatureState({ source: "schools", id: hoveredId }, { hover: false }); hoveredId = null; }
-    });
-    map.on("click", "schools-circle", (e) => {
-      if (!e.features.length) return;
-      const p = e.features[0].properties;
-      const dist = p.distance_m != null ? Number(p.distance_m).toFixed(1) + "m" : "N/A";
-      new maplibregl.Popup({ maxWidth: "300px" })
-        .setLngLat(e.lngLat)
-        .setHTML(`<div>
-          <b>${p["NAMA SEKOLAH"] || "School"}</b><br/>
-          <span style="color:#94a3b8;">${p.Jenjang || ""} &middot; ${p.KABUPATEN || ""}</span><br/><br/>
-          <b>Road:</b> ${p.nearest_road_name || "N/A"} (${p.nearest_road_kode || "N/A"})<br/>
-          <b>Distance:</b> ${dist}<br/>
-          <b>Accreditation:</b> ${p.AKREDITASI || "N/A"}<br/>
-          <b>UPTD:</b> ${p.nearest_road_unit_kerja || "N/A"}
-        </div>`)
-        .addTo(map);
-    });
-  }
-
   // ─── Filters ──────────────────────────────────────────────
   function updateFilters() {
     if (!map.getLayer("schools-circle")) return;
@@ -938,12 +937,18 @@
   }
 
   // ─── INIT DONE ────────────────────────────────────────────
-  $("loading").classList.add("hidden");
-  loadStatus.textContent = "";
-  console.log("All dependencies loaded. Ready for data.");
+  console.log("Map created. Waiting for WASM + map load...");
 
-  // Auto-load from server
-  map.on("load", async () => {
+  // Auto-load parquet when both WASM and map are ready
+  (async () => {
+    await wasmReady;  // wait for WASM in background
+
+    // Wait for map to finish loading (globe + starfield rendered)
+    await new Promise(resolve => {
+      if (map.loaded()) resolve();
+      else map.once("load", resolve);
+    });
+
     try {
       const [roadsResp, schoolsResp] = await Promise.allSettled([
         fetch("ruas_jalan.parquet"), fetch("sekolah_matched.parquet")
@@ -961,12 +966,31 @@
         fileDrop.classList.add("loaded");
         fileStatus.className = "status ok";
         fileStatus.textContent = `Auto-loaded ${roadsGeoJSON.features.length} roads, ${schoolsGeoJSON.features.length} schools`;
-        showUI(); updateStats(); fitBounds();
+        showUI(); updateStats();
+
+        // Fly from globe view to data bounds (validate coords)
+        try {
+          const bounds = new maplibregl.LngLatBounds();
+          roadsGeoJSON.features.forEach(f => {
+            f.geometry.coordinates.flat(2).forEach((_, i, a) => {
+              if (i % 2 === 0 && a[i] >= -180 && a[i] <= 180 && a[i+1] >= -90 && a[i+1] <= 90)
+                bounds.extend([a[i], a[i+1]]);
+            });
+          });
+          schoolsGeoJSON.features.forEach(f => {
+            const c = f.geometry.coordinates;
+            if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90)
+              bounds.extend(c);
+          });
+          if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 40, duration: 2500 });
+        } catch (e) {
+          console.log("fitBounds skipped:", e.message);
+        }
       }
     } catch (e) {
       console.log("Auto-load not available:", e.message);
     }
-  });
+  })();
 </script>
 </body>
 </html>
