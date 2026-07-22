@@ -1042,8 +1042,9 @@
         // Fly from globe view to data bounds (with delay to ensure globe projection is ready)
         setTimeout(() => {
           try {
-            // Calculate center from all coordinates
-            let sumLng = 0, sumLat = 0, count = 0;
+            // Calculate bounding box from all coordinates
+            let minLng = 180, maxLng = -180, minLat = 90, maxLat = -90;
+            let count = 0;
 
             roadsGeoJSON.features.forEach(f => {
               // Handle both LineString and MultiLineString
@@ -1052,30 +1053,50 @@
                 : f.geometry.coordinates;
               coords.forEach(c => {
                 if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90) {
-                  sumLng += c[0]; sumLat += c[1]; count++;
+                  if (c[0] < minLng) minLng = c[0];
+                  if (c[0] > maxLng) maxLng = c[0];
+                  if (c[1] < minLat) minLat = c[1];
+                  if (c[1] > maxLat) maxLat = c[1];
+                  count++;
                 }
               });
             });
             schoolsGeoJSON.features.forEach(f => {
               const c = f.geometry.coordinates;
               if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90) {
-                sumLng += c[0]; sumLat += c[1]; count++;
+                if (c[0] < minLng) minLng = c[0];
+                if (c[0] > maxLng) maxLng = c[0];
+                if (c[1] < minLat) minLat = c[1];
+                if (c[1] > maxLat) maxLat = c[1];
+                count++;
               }
             });
 
             if (count > 0) {
-              const centerLng = sumLng / count;
-              const centerLat = sumLat / count;
-              console.log("Fly-to center:", centerLng, centerLat, "points:", count);
+              // Center of bounding box = true center of West Java
+              const centerLng = (minLng + maxLng) / 2;
+              const centerLat = (minLat + maxLat) / 2;
 
-              // Use flyTo instead of fitBounds (works better with globe projection)
+              // Calculate zoom based on extent
+              const lngExtent = maxLng - minLng;
+              const latExtent = maxLat - minLat;
+              const maxExtent = Math.max(lngExtent, latExtent);
+              // Approximate zoom: ~0.5 degrees at zoom 10, ~1 degree at zoom 9, etc.
+              let zoom = 10;
+              if (maxExtent > 4) zoom = 6;
+              else if (maxExtent > 2) zoom = 7;
+              else if (maxExtent > 1) zoom = 8;
+              else if (maxExtent > 0.5) zoom = 9;
+
+              console.log("Fly-to center:", centerLng, centerLat, "extent:", maxExtent, "zoom:", zoom);
+
               map.flyTo({
                 center: [centerLng, centerLat],
-                zoom: 10,
+                zoom: zoom,
                 duration: 4000,
                 essential: true,
               });
-              console.log("FlyTo triggered to", [centerLng, centerLat]);
+              console.log("FlyTo triggered to", [centerLng, centerLat], "zoom", zoom);
             } else {
               console.warn("No valid coordinates found, skipping fly-to");
             }
