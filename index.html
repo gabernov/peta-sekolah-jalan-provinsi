@@ -351,16 +351,69 @@
       if (!e.features.length) return;
       const p = e.features[0].properties;
       const dist = p.distance_m != null ? Number(p.distance_m).toFixed(1) + "m" : "N/A";
-      new maplibregl.Popup({ maxWidth: "300px" })
+
+      // Build structured popup with all properties
+      const schoolFields = [
+        ["NAMA SEKOLAH", "School Name"],
+        ["NPSN", "NPSN"],
+        ["BENTUK", "Type"],
+        ["Jenjang", "Level"],
+        ["NAMA DUSUN", "Hamlet"],
+        ["DESA/KELURAHAN", "Village"],
+        ["KECAMATAN", "District"],
+        ["KABUPATEN", "Regency"],
+        ["PROVINSI", "Province"],
+        ["KODE POS", "Postal Code"],
+        ["LINTANG", "Latitude"],
+        ["BUJUR", "Longitude"],
+        ["STATUS", "Status"],
+        ["AKREDITASI", "Accreditation"],
+        ["SUMBER LISTRIK", "Power Source"],
+        ["AKSES INTERNET", "Internet Access"],
+        ["SUMBER AIR", "Water Source"],
+        ["KECUKUPAN AIR", "Water Sufficiency"],
+      ];
+
+      const roadFields = [
+        ["nearest_road_name", "Road Name"],
+        ["nearest_road_kode", "Road Code"],
+        ["nearest_road_id", "Road ID"],
+        ["nearest_road_panjang_km", "Road Length (km)"],
+        ["nearest_road_unit_kerja", "UPTD"],
+      ];
+
+      let html = `<div style="font-size:12px; line-height:1.5; max-height:400px; overflow-y:auto;">`;
+      html += `<div style="font-size:14px; font-weight:700; color:#38bdf8; margin-bottom:8px;">${p["NAMA SEKOLAH"] || "School"}</div>`;
+
+      // School info section
+      html += `<div style="margin-bottom:8px;">`;
+      schoolFields.forEach(([key, label]) => {
+        if (p[key] != null && p[key] !== "") {
+          html += `<div><span style="color:#64748b;">${label}:</span> <b>${p[key]}</b></div>`;
+        }
+      });
+      html += `</div>`;
+
+      // Distance section
+      html += `<div style="background:#0f172a; padding:6px 8px; border-radius:4px; margin-bottom:8px;">`;
+      html += `<div><span style="color:#64748b;">Distance to Road:</span> <b style="color:#38bdf8;">${dist}</b></div>`;
+      html += `</div>`;
+
+      // Road info section
+      html += `<div style="border-top:1px solid #334155; padding-top:6px;">`;
+      html += `<div style="font-weight:600; color:#94a3b8; margin-bottom:4px;">Nearest Road</div>`;
+      roadFields.forEach(([key, label]) => {
+        if (p[key] != null && p[key] !== "") {
+          html += `<div><span style="color:#64748b;">${label}:</span> <b>${p[key]}</b></div>`;
+        }
+      });
+      html += `</div>`;
+
+      html += `</div>`;
+
+      new maplibregl.Popup({ maxWidth: "320px" })
         .setLngLat(e.lngLat)
-        .setHTML(`<div>
-          <b>${p["NAMA SEKOLAH"] || "School"}</b><br/>
-          <span style="color:#94a3b8;">${p.Jenjang || ""} &middot; ${p.KABUPATEN || ""}</span><br/><br/>
-          <b>Road:</b> ${p.nearest_road_name || "N/A"} (${p.nearest_road_kode || "N/A"})<br/>
-          <b>Distance:</b> ${dist}<br/>
-          <b>Accreditation:</b> ${p.AKREDITASI || "N/A"}<br/>
-          <b>UPTD:</b> ${p.nearest_road_unit_kerja || "N/A"}
-        </div>`)
+        .setHTML(html)
         .addTo(map);
     });
   }
@@ -989,24 +1042,42 @@
         // Fly from globe view to data bounds (with delay to ensure globe projection is ready)
         setTimeout(() => {
           try {
-            const bounds = new maplibregl.LngLatBounds();
+            // Calculate center from all coordinates
+            let sumLng = 0, sumLat = 0, count = 0;
+
             roadsGeoJSON.features.forEach(f => {
-              f.geometry.coordinates.flat(2).forEach((_, i, a) => {
-                if (i % 2 === 0 && a[i] >= -180 && a[i] <= 180 && a[i+1] >= -90 && a[i+1] <= 90)
-                  bounds.extend([a[i], a[i+1]]);
+              // Handle both LineString and MultiLineString
+              const coords = f.geometry.type === "MultiLineString"
+                ? f.geometry.coordinates.flat()
+                : f.geometry.coordinates;
+              coords.forEach(c => {
+                if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90) {
+                  sumLng += c[0]; sumLat += c[1]; count++;
+                }
               });
             });
             schoolsGeoJSON.features.forEach(f => {
               const c = f.geometry.coordinates;
-              if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90)
-                bounds.extend(c);
+              if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90) {
+                sumLng += c[0]; sumLat += c[1]; count++;
+              }
             });
-            console.log("Fly-to bounds:", bounds.getNorthEast(), bounds.getSouthWest());
-            if (!bounds.isEmpty()) {
-              map.fitBounds(bounds, { padding: 40, duration: 2500 });
-              console.log("Fly-to triggered with duration 2500ms");
+
+            if (count > 0) {
+              const centerLng = sumLng / count;
+              const centerLat = sumLat / count;
+              console.log("Fly-to center:", centerLng, centerLat, "points:", count);
+
+              // Use flyTo instead of fitBounds (works better with globe projection)
+              map.flyTo({
+                center: [centerLng, centerLat],
+                zoom: 10,
+                duration: 4000,
+                essential: true,
+              });
+              console.log("FlyTo triggered to", [centerLng, centerLat]);
             } else {
-              console.warn("Fly-to bounds empty, skipping");
+              console.warn("No valid coordinates found, skipping fly-to");
             }
           } catch (e) {
             console.error("Fly-to error:", e);
