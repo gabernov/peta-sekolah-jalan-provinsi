@@ -322,6 +322,8 @@
     const starfield = new MaplibreStarfieldLayer({
       starCount: 4000,
       starSize: 2.0,
+      galaxyTextureUrl: "milkyway.jpg",
+      galaxyBrightness: 0.35,
     });
     map.addLayer(starfield, map.getStyle().layers[0]?.id);
   }
