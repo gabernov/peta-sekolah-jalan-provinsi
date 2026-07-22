@@ -20,12 +20,14 @@
     body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #0f172a; }
     #map { position: absolute; top: 0; bottom: 0; width: 100%; }
 
-    /* Loading overlay — hidden by default, shown on error */
+    /* Loading overlay — scoped to map area so UI is visible immediately */
     #loading {
-      position: fixed; inset: 0; z-index: 2000;
-      background: rgba(15, 23, 42, 0.95);
-      display: none; flex-direction: column; justify-content: center; align-items: center;
+      position: absolute; inset: 0; z-index: 5;
+      background: rgba(15, 23, 42, 0.85);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
       color: #e2e8f0; font-size: 14px;
+      backdrop-filter: blur(2px);
+      pointer-events: none; /* let UI interactions through while loading */
     }
     #loading.hidden { display: none; }
     #loading .spinner {
@@ -191,14 +193,14 @@
 </head>
 <body>
 
-<div id="loading">
-  <div class="spinner"></div>
-  <div>Loading WASM modules...</div>
-  <div class="status" id="load-status"></div>
-  <div class="error" id="load-error"></div>
+<div id="map">
+  <div id="loading">
+    <div class="spinner"></div>
+    <div>Loading map...</div>
+    <div class="status" id="load-status"></div>
+    <div class="error" id="load-error"></div>
+  </div>
 </div>
-
-<div id="map"></div>
 
 <div id="drop-overlay">
   <div class="box">
@@ -207,7 +209,7 @@
   </div>
 </div>
 
-<div id="panel" style="display:none;">
+<div id="panel">
   <div id="panel-header">
     <span class="icon">🏫</span>
     <h1>Peta Sekolah Jalan Provinsi</h1>
@@ -943,7 +945,10 @@
 
   // ─── Show UI ──────────────────────────────────────────────
   function showUI() {
-    $("panel").style.display = "block";
+    // Hide the map loading overlay — UI is already visible
+    $("loading").classList.add("hidden");
+
+    // Show data-dependent sections
     $("filter-section").style.display = "block";
     $("uptd-section").style.display = "block";
     $("dist-legend-section").style.display = "block";
