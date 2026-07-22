@@ -306,10 +306,14 @@
     style: "https://tiles.openfreemap.org/styles/dark",
     center: [0, 20],
     zoom: 1.5,
-    projection: { type: 'globe' },
   });
   map.addControl(new maplibregl.NavigationControl(), "top-right");
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), "bottom-left");
+
+  // Set globe projection AFTER style loads (remote styles override constructor options)
+  map.on("style.load", () => {
+    map.setProjection({ type: "globe" });
+  });
 
   // Starfield — add behind all layers on first load
   map.once("load", () => {
