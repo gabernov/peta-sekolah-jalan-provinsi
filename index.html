@@ -306,11 +306,12 @@
     style: "https://tiles.openfreemap.org/styles/bright",
     center: [0, 20],
     zoom: 1.5,
+    projection: { type: "globe" },
   });
   map.addControl(new maplibregl.NavigationControl(), "top-right");
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), "bottom-left");
 
-  // Set globe projection AFTER style loads (remote styles override constructor options)
+  // Re-ensure globe projection after style loads (safety fallback)
   map.on("style.load", () => {
     map.setProjection({ type: "globe" });
   });
@@ -1042,28 +1043,14 @@
         // Fly from globe view to data bounds (with delay to ensure globe projection is ready)
         setTimeout(() => {
           try {
-            // Calculate bounding box from all coordinates
+            // Use ONLY school points for center calculation (more reliable than road line endpoints)
             let minLng = 180, maxLng = -180, minLat = 90, maxLat = -90;
             let count = 0;
 
-            roadsGeoJSON.features.forEach(f => {
-              // Handle both LineString and MultiLineString
-              const coords = f.geometry.type === "MultiLineString"
-                ? f.geometry.coordinates.flat()
-                : f.geometry.coordinates;
-              coords.forEach(c => {
-                if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90) {
-                  if (c[0] < minLng) minLng = c[0];
-                  if (c[0] > maxLng) maxLng = c[0];
-                  if (c[1] < minLat) minLat = c[1];
-                  if (c[1] > maxLat) maxLat = c[1];
-                  count++;
-                }
-              });
-            });
             schoolsGeoJSON.features.forEach(f => {
               const c = f.geometry.coordinates;
-              if (c[0] >= -180 && c[0] <= 180 && c[1] >= -90 && c[1] <= 90) {
+              if (c && c[0] >= 100 && c[0] <= 120 && c[1] >= -10 && c[1] <= 0) {
+                // Only accept coordinates within Indonesia/West Java range
                 if (c[0] < minLng) minLng = c[0];
                 if (c[0] > maxLng) maxLng = c[0];
                 if (c[1] < minLat) minLat = c[1];
@@ -1073,22 +1060,22 @@
             });
 
             if (count > 0) {
-              // Center of bounding box = true center of West Java
+              // Center of bounding box
               const centerLng = (minLng + maxLng) / 2;
               const centerLat = (minLat + maxLat) / 2;
 
-              // Calculate zoom based on extent
+              // Calculate zoom based on extent (West Java is ~3° wide, ~1.5° tall)
               const lngExtent = maxLng - minLng;
               const latExtent = maxLat - minLat;
               const maxExtent = Math.max(lngExtent, latExtent);
-              // Approximate zoom: ~0.5 degrees at zoom 10, ~1 degree at zoom 9, etc.
               let zoom = 10;
-              if (maxExtent > 4) zoom = 6;
-              else if (maxExtent > 2) zoom = 7;
-              else if (maxExtent > 1) zoom = 8;
-              else if (maxExtent > 0.5) zoom = 9;
+              if (maxExtent > 4) zoom = 7;
+              else if (maxExtent > 3) zoom = 8;
+              else if (maxExtent > 2) zoom = 9;
+              else if (maxExtent > 1) zoom = 10;
+              else zoom = 11;
 
-              console.log("Fly-to center:", centerLng, centerLat, "extent:", maxExtent, "zoom:", zoom);
+              console.log("Fly-to center:", centerLng, centerLat, "extent:", maxExtent.toFixed(2), "zoom:", zoom, "schools:", count);
 
               map.flyTo({
                 center: [centerLng, centerLat],
@@ -1096,7 +1083,7 @@
                 duration: 4000,
                 essential: true,
               });
-              console.log("FlyTo triggered to", [centerLng, centerLat], "zoom", zoom);
+              console.log("FlyTo triggered to", [centerLng.toFixed(4), centerLat.toFixed(4)], "zoom", zoom);
             } else {
               console.warn("No valid coordinates found, skipping fly-to");
             }
