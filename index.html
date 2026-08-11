@@ -511,6 +511,7 @@
         <div class="filter-group">
           <div class="filter-label">Jenjang</div>
           <div class="filter-toggles" id="filter-jenjang">
+            <button class="filter-btn" data-category="jenjang" data-value="SD">SD</button>
             <button class="filter-btn" data-category="jenjang" data-value="SMA">SMA</button>
             <button class="filter-btn" data-category="jenjang" data-value="SMK">SMK</button>
             <button class="filter-btn" data-category="jenjang" data-value="SLB">SLB</button>
@@ -548,10 +549,10 @@
       <div class="section-content">
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
           <label class="toggle">
-            <input type="checkbox" id="filter-toggle" checked />
+            <input type="checkbox" id="filter-toggle" />
             <span class="toggle-slider"></span>
           </label>
-          <span style="font-size:12px; color:#94a3b8;" id="filter-toggle-label">Filter ON</span>
+          <span style="font-size:12px; color:#94a3b8;" id="filter-toggle-label">Filter OFF</span>
         </div>
         <div class="slider-row" id="slider-row">
           <label>Max distance</label>
@@ -560,6 +561,12 @@
         </div>
         <div id="filter-count">
           Showing <strong id="visible-count">0</strong> of <strong id="total-count">0</strong> schools
+        </div>
+        <div id="stats-breakdown" style="margin-top:8px; font-size:11px; line-height:1.7; color:#94a3b8; background:#0f172a; padding:8px 10px; border-radius:6px; display:none;">
+          <div style="font-weight:600; color:#cbd5e1; margin-bottom:4px;">Stats Breakdown</div>
+          <div id="stats-jenjang"></div>
+          <div id="stats-status"></div>
+          <div id="stats-validasi"></div>
         </div>
         <button id="export-btn" style="display:none;">
           ⬇ Export 0 to XLSX
@@ -1093,7 +1100,7 @@
     validasi: new Set(),  // values: "Valid", "Tidak Valid"
     kabupaten: "",        // "" = Semua
   };
-  const JENJANG_TOTAL = 3;
+  const JENJANG_TOTAL = 4;
   const STATUS_TOTAL = 2;
   const VALIDASI_TOTAL = 2;
 
@@ -1289,7 +1296,7 @@
 
     // Count visible schools (mirrors MapLibre filter logic)
     const total = schoolsGeoJSON ? schoolsGeoJSON.features.length : 0;
-    const visible = schoolsGeoJSON ? schoolsGeoJSON.features.filter(f => {
+    const visibleFeatures = schoolsGeoJSON ? schoolsGeoJSON.features.filter(f => {
       const p = f.properties;
       if (filterOn) {
         const d = p.distance_m;
@@ -1301,12 +1308,61 @@
       if (dataFilters.validasi.size > 0 && dataFilters.validasi.size < VALIDASI_TOTAL && !dataFilters.validasi.has(p.Validasi)) return false;
       if (dataFilters.kabupaten && p.KABUPATEN !== dataFilters.kabupaten) return false;
       return true;
-    }).length : 0;
+    }) : [];
+    const visible = visibleFeatures.length;
 
     $("visible-count").textContent = visible.toLocaleString();
     $("total-count").textContent = total.toLocaleString();
     $("school-badge").textContent = visible.toLocaleString();
     $("export-btn").textContent = `⬇ Export ${visible.toLocaleString()} to XLSX`;
+
+    // ── Stats Breakdown ──
+    const statsEl = $("stats-breakdown");
+    if (visible > 0 && visible < total) {
+      statsEl.style.display = "block";
+      // Count per Jenjang
+      const jCounts = {};
+      const sCounts = {};
+      const vCounts = {};
+      visibleFeatures.forEach(f => {
+        const p = f.properties;
+        const j = p.Jenjang || "?";
+        jCounts[j] = (jCounts[j] || 0) + 1;
+        const s = (p.STATUS || "?").toUpperCase();
+        sCounts[s] = (sCounts[s] || 0) + 1;
+        const v = p.Validasi || "Belum Diverifikasi";
+        vCounts[v] = (vCounts[v] || 0) + 1;
+      });
+      // Render Jenjang
+      const jOrder = ["SD", "SMA", "SMK", "SLB"];
+      let jHtml = '<div>Jenjang: ';
+      jOrder.forEach((k, i) => {
+        if (jCounts[k]) jHtml += `<span style="color:#38bdf8;">${k}</span> <b>${jCounts[k].toLocaleString()}</b>${i < jOrder.length - 1 ? " · " : ""}`;
+      });
+      jHtml += "</div>";
+      $("stats-jenjang").innerHTML = jHtml;
+      // Render Status
+      const sOrder = ["NEGERI", "SWASTA"];
+      let sHtml = '<div>Status: ';
+      sOrder.forEach((k, i) => {
+        if (sCounts[k] != null) sHtml += `<span style="color:#a78bfa;">${k.charAt(0) + k.slice(1).toLowerCase()}</span> <b>${sCounts[k].toLocaleString()}</b>${i < sOrder.length - 1 ? " · " : ""}`;
+      });
+      sHtml += "</div>";
+      $("stats-status").innerHTML = sHtml;
+      // Render Validasi
+      const vOrder = ["Valid", "Tidak Valid", "Belum Diverifikasi"];
+      let vHtml = '<div>Validasi: ';
+      vOrder.forEach((k, i) => {
+        if (vCounts[k]) {
+          const col = k === "Valid" ? "#22c55e" : k === "Tidak Valid" ? "#ef4444" : "#94a3b8";
+          vHtml += `<span style="color:${col};">${k}</span> <b>${vCounts[k].toLocaleString()}</b>${i < vOrder.length - 1 ? " · " : ""}`;
+        }
+      });
+      vHtml += "</div>";
+      $("stats-validasi").innerHTML = vHtml;
+    } else {
+      statsEl.style.display = "none";
+    }
   }
   $("dist-slider").addEventListener("input", updateFilters);
 
