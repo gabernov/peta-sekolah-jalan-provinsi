@@ -150,48 +150,57 @@
       opacity: 0;
     }
 
-    /* ═══ STAT CARDS ═══ */
-    .stats-row {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-      margin-bottom: 16px;
-    }
-    .stat-card {
-      position: relative;
+    /* ═══ STATS PANEL ═══ */
+    #stats-panel {
       background: linear-gradient(135deg, #0f172a, #152033);
-      border-radius: 10px; padding: 12px 14px;
-      border: 1px solid #1e3a5f;
-      border-left: 3px solid #334155;
-      transition: all 0.2s;
-      overflow: hidden;
+      border: 1px solid #1e3a5f; border-radius: 10px;
+      padding: 14px; margin-bottom: 14px;
     }
-    .stat-card:hover {
-      border-color: #475569;
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    #stats-bar-track {
+      width: 100%; height: 5px; background: #1e293b; border-radius: 3px; overflow: hidden;
     }
-    .stat-card::after {
-      content: '';
-      position: absolute; top: 0; right: 0;
-      width: 50px; height: 50px;
-      background: radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 70%);
-      pointer-events: none;
+    #stats-bar-fill {
+      height: 100%; background: linear-gradient(90deg, #38bdf8, #22c55e);
+      border-radius: 3px; transition: width 0.3s ease;
     }
-    .stat-card .sc-icon { font-size: 14px; margin-bottom: 4px; }
-    .stat-card .label {
+    .stats-group {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #1e293b;
+    }
+    .stats-group:first-of-type { border-top: none; margin-top: 8px; padding-top: 0; }
+    .stats-group-label {
       font-size: 10px; color: #64748b; text-transform: uppercase;
-      letter-spacing: 0.06em; font-weight: 500;
+      letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px;
+      display: flex; align-items: center; justify-content: space-between;
     }
-    .stat-card .value {
-      font-size: 22px; font-weight: 800; color: #e2e8f0;
-      margin-top: 2px; letter-spacing: -0.02em;
-      font-variant-numeric: tabular-nums;
+    .stats-chips {
+      display: flex; flex-wrap: wrap; gap: 5px;
     }
-    .stat-card .value.blue { color: #38bdf8; }
-    .stat-card .value.green { color: #22c55e; }
-    .stat-card:nth-child(1) { border-left-color: #38bdf8; }
-    .stat-card:nth-child(2) { border-left-color: #a78bfa; }
-    .stat-card:nth-child(3) { border-left-color: #22c55e; }
-    .stat-card:nth-child(4) { border-left-color: #f59e0b; }
+    .stats-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #0f172a; border: 1px solid #1e293b; border-radius: 6px;
+      padding: 4px 8px; font-size: 11px; line-height: 1;
+      transition: all 0.15s;
+    }
+    .stats-chip:hover { border-color: #334155; }
+    .stats-chip .chip-label { color: #94a3b8; }
+    .stats-chip .chip-count { color: #e2e8f0; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .stats-chip.jenjang-sd { border-left: 2px solid #22d3ee; }
+    .stats-chip.jenjang-sma { border-left: 2px solid #38bdf8; }
+    .stats-chip.jenjang-smk { border-left: 2px solid #a78bfa; }
+    .stats-chip.jenjang-slb { border-left: 2px solid #f59e0b; }
+    .stats-chip.status-negeri { border-left: 2px solid #34d399; }
+    .stats-chip.status-swasta { border-left: 2px solid #f472b6; }
+    .stats-chip.valid { border-left: 2px solid #22c55e; }
+    .stats-chip.tidak-valid { border-left: 2px solid #ef4444; }
+    .stats-chip.belum { border-left: 2px solid #64748b; }
+    .stats-chip.kab { border-left: 2px solid #818cf8; flex: 0 0 calc(50% - 3px); justify-content: space-between; }
+    #stats-kab::-webkit-scrollbar { width: 4px; }
+    #stats-kab::-webkit-scrollbar-track { background: #0f172a; border-radius: 2px; }
+    #stats-kab::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+    #stats-kab-chevron { transition: transform 0.2s; }
+    #stats-kab-chevron.open { transform: rotate(90deg); }
 
     /* ═══ FILE DROP ZONE ═══ */
     #file-drop {
@@ -469,26 +478,39 @@
     <span class="badge" id="school-badge">0</span>
   </div>
   <div id="panel-body">
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="sc-icon">🛣️</div>
-        <div class="label">Roads</div>
-        <div class="value" id="stat-roads">0</div>
+    <div id="stats-panel">
+      <div id="stats-header">
+        <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+          <span style="font-size:16px;">🏫</span>
+          <span id="stats-total" style="font-size:18px; font-weight:800; color:#e2e8f0;">0</span>
+          <span style="font-size:11px; color:#64748b;">of 0 schools</span>
+        </div>
+        <div id="stats-bar-track">
+          <div id="stats-bar-fill"></div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="sc-icon">🏫</div>
-        <div class="label">Schools</div>
-        <div class="value" id="stat-schools">0</div>
+
+      <div class="stats-group" id="stats-jenjang-group">
+        <div class="stats-group-label">Per Jenjang</div>
+        <div class="stats-chips" id="stats-jenjang"></div>
       </div>
-      <div class="stat-card">
-        <div class="sc-icon">✅</div>
-        <div class="label">Matched</div>
-        <div class="value green" id="stat-matched">0</div>
+
+      <div class="stats-group" id="stats-status-group">
+        <div class="stats-group-label">Per Status</div>
+        <div class="stats-chips" id="stats-status"></div>
       </div>
-      <div class="stat-card">
-        <div class="sc-icon">📍</div>
-        <div class="label">Within 60m</div>
-        <div class="value blue" id="stat-nearby">0</div>
+
+      <div class="stats-group" id="stats-validasi-group">
+        <div class="stats-group-label">Per Validasi</div>
+        <div class="stats-chips" id="stats-validasi"></div>
+      </div>
+
+      <div class="stats-group" id="stats-kab-group">
+        <div class="stats-group-label" style="cursor:pointer; user-select:none;" id="stats-kab-toggle">
+          <span>Per Kota/Kabupaten</span>
+          <span class="chevron" id="stats-kab-chevron">▸</span>
+        </div>
+        <div class="stats-chips" id="stats-kab" style="display:none; max-height:180px; overflow-y:auto;"></div>
       </div>
     </div>
 
@@ -496,7 +518,7 @@
       <div class="section-title"><span class="chevron">▸</span> Data Files</div>
       <div class="section-content">
         <div id="file-drop">
-          <p>Drag & drop <strong>ruas_jalan.parquet</strong> + <strong>sekolah_377.parquet</strong></p>
+          <p>Drag & drop <strong>ruas_jalan.parquet</strong> + <strong>sekolah_merged.parquet</strong></p>
           <p style="margin-top:4px;font-size:11px;color:#64748b;">or click to select files</p>
           <input type="file" id="file-input" multiple accept=".parquet" style="display:none;" />
           <div class="status" id="file-status"></div>
@@ -561,12 +583,6 @@
         </div>
         <div id="filter-count">
           Showing <strong id="visible-count">0</strong> of <strong id="total-count">0</strong> schools
-        </div>
-        <div id="stats-breakdown" style="margin-top:8px; font-size:11px; line-height:1.7; color:#94a3b8; background:#0f172a; padding:8px 10px; border-radius:6px; display:none;">
-          <div style="font-weight:600; color:#cbd5e1; margin-bottom:4px;">Stats Breakdown</div>
-          <div id="stats-jenjang"></div>
-          <div id="stats-status"></div>
-          <div id="stats-validasi"></div>
         </div>
         <button id="export-btn" style="display:none;">
           ⬇ Export 0 to XLSX
@@ -1316,55 +1332,61 @@
     $("school-badge").textContent = visible.toLocaleString();
     $("export-btn").textContent = `⬇ Export ${visible.toLocaleString()} to XLSX`;
 
-    // ── Stats Breakdown ──
-    const statsEl = $("stats-breakdown");
-    if (visible > 0 && visible < total) {
-      statsEl.style.display = "block";
-      // Count per Jenjang
-      const jCounts = {};
-      const sCounts = {};
-      const vCounts = {};
-      visibleFeatures.forEach(f => {
-        const p = f.properties;
-        const j = p.Jenjang || "?";
-        jCounts[j] = (jCounts[j] || 0) + 1;
-        const s = (p.STATUS || "?").toUpperCase();
-        sCounts[s] = (sCounts[s] || 0) + 1;
-        const v = p.Validasi || "Belum Diverifikasi";
-        vCounts[v] = (vCounts[v] || 0) + 1;
-      });
-      // Render Jenjang
-      const jOrder = ["SD", "SMA", "SMK", "SLB"];
-      let jHtml = '<div>Jenjang: ';
-      jOrder.forEach((k, i) => {
-        if (jCounts[k]) jHtml += `<span style="color:#38bdf8;">${k}</span> <b>${jCounts[k].toLocaleString()}</b>${i < jOrder.length - 1 ? " · " : ""}`;
-      });
-      jHtml += "</div>";
-      $("stats-jenjang").innerHTML = jHtml;
-      // Render Status
-      const sOrder = ["NEGERI", "SWASTA"];
-      let sHtml = '<div>Status: ';
-      sOrder.forEach((k, i) => {
-        if (sCounts[k] != null) sHtml += `<span style="color:#a78bfa;">${k.charAt(0) + k.slice(1).toLowerCase()}</span> <b>${sCounts[k].toLocaleString()}</b>${i < sOrder.length - 1 ? " · " : ""}`;
-      });
-      sHtml += "</div>";
-      $("stats-status").innerHTML = sHtml;
-      // Render Validasi
-      const vOrder = ["Valid", "Tidak Valid", "Belum Diverifikasi"];
-      let vHtml = '<div>Validasi: ';
-      vOrder.forEach((k, i) => {
-        if (vCounts[k]) {
-          const col = k === "Valid" ? "#22c55e" : k === "Tidak Valid" ? "#ef4444" : "#94a3b8";
-          vHtml += `<span style="color:${col};">${k}</span> <b>${vCounts[k].toLocaleString()}</b>${i < vOrder.length - 1 ? " · " : ""}`;
-        }
-      });
-      vHtml += "</div>";
-      $("stats-validasi").innerHTML = vHtml;
-    } else {
-      statsEl.style.display = "none";
-    }
+    // ── Stats Panel ──
+    $("stats-total").textContent = visible.toLocaleString();
+    $("stats-total").nextElementSibling.textContent = `of ${total.toLocaleString()} schools`;
+    $("stats-bar-fill").style.width = total > 0 ? ((visible / total) * 100) + "%" : "0%";
+
+    // Count per category
+    const jCounts = {}, sCounts = {}, vCounts = {}, kCounts = {};
+    visibleFeatures.forEach(f => {
+      const p = f.properties;
+      const j = p.Jenjang || "?";
+      jCounts[j] = (jCounts[j] || 0) + 1;
+      const s = (p.STATUS || "?").toUpperCase();
+      sCounts[s] = (sCounts[s] || 0) + 1;
+      const v = p.Validasi || "Belum Diverifikasi";
+      vCounts[v] = (vCounts[v] || 0) + 1;
+      const k = p.KABUPATEN || "?";
+      kCounts[k] = (kCounts[k] || 0) + 1;
+    });
+
+    // Render Jenjang chips
+    const jOrder = ["SD", "SMA", "SMK", "SLB"];
+    $("stats-jenjang").innerHTML = jOrder.filter(k => jCounts[k]).map(k =>
+      `<div class="stats-chip jenjang-${k.toLowerCase()}"><span class="chip-label">${k}</span><span class="chip-count">${jCounts[k].toLocaleString()}</span></div>`
+    ).join("");
+
+    // Render Status chips
+    const sOrder = ["NEGERI", "SWASTA"];
+    $("stats-status").innerHTML = sOrder.filter(k => sCounts[k] != null).map(k =>
+      `<div class="stats-chip status-${k.toLowerCase()}"><span class="chip-label">${k.charAt(0) + k.slice(1).toLowerCase()}</span><span class="chip-count">${sCounts[k].toLocaleString()}</span></div>`
+    ).join("");
+
+    // Render Validasi chips
+    const vOrder = [["Valid", "valid"], ["Tidak Valid", "tidak-valid"], ["Belum Diverifikasi", "belum"]];
+    $("stats-validasi").innerHTML = vOrder.filter(([k]) => vCounts[k]).map(([k, cls]) =>
+      `<div class="stats-chip ${cls}"><span class="chip-label">${k}</span><span class="chip-count">${vCounts[k].toLocaleString()}</span></div>`
+    ).join("");
+
+    // Render Kabupaten chips (sorted by count desc)
+    const kSorted = Object.entries(kCounts).sort((a, b) => b[1] - a[1]);
+    $("stats-kab").innerHTML = kSorted.map(([k, c]) =>
+      `<div class="stats-chip kab"><span class="chip-label">${k}</span><span class="chip-count">${c.toLocaleString()}</span></div>`
+    ).join("");
+    $("stats-kab-toggle").querySelector("span:first-child").textContent =
+      `Per Kota/Kabupaten (${kSorted.length})`;
   }
   $("dist-slider").addEventListener("input", updateFilters);
+
+  // ── Kabupaten stats toggle ──
+  $("stats-kab-toggle").addEventListener("click", () => {
+    const el = $("stats-kab");
+    const chevron = $("stats-kab-chevron");
+    const open = el.style.display !== "none";
+    el.style.display = open ? "none" : "flex";
+    chevron.classList.toggle("open", !open);
+  });
 
   // Toggle switch handler
   $("filter-toggle").addEventListener("change", () => {
@@ -1492,12 +1514,8 @@
   }
 
   function updateStats() {
-    if (roadsGeoJSON) $("stat-roads").textContent = roadsGeoJSON.features.length.toLocaleString();
-    if (schoolsGeoJSON) {
-      $("stat-schools").textContent = schoolsGeoJSON.features.length.toLocaleString();
-      $("stat-matched").textContent = schoolsGeoJSON.features.filter(f => f.properties.nearest_road_kode != null).length.toLocaleString();
-      $("stat-nearby").textContent = schoolsGeoJSON.features.filter(f => f.properties.within_60m === true).length.toLocaleString();
-    }
+    // Stats are now computed inside updateFilters() — this is just for initial load
+    updateFilters();
   }
 
   function fitBounds() {
