@@ -1,163 +1,1554 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Sekolah Jawa Barat - Jalan Provinsi</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        * { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
-        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 40px rgba(0,0,0,0.12); }
-        .filter-btn.active { background: #2563eb; color: white; }
-        .filter-btn:not(.active) { background: #f3f4f6; color: #374151; }
-        .filter-btn:not(.active):hover { background: #e5e7eb; }
-        .table-row:hover { background: #f9fafb; }
-        .badge-valid { background: #dcfce7; color: #166534; }
-        .badge-invalid { background: #fee2e2; color: #991b1b; }
-        .badge-negeri { background: #e0e7ff; color: #3730a3; }
-        .badge-swasta { background: #fff7ed; color: #9a3412; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .fade-in { animation: fadeIn 0.3s ease-out; }
-        .search-input:focus { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2); }
-        select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; background-size: 16px; }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Peta Jalan Provinsi — School Distance Visualizer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏫</text></svg>">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "@geoql/maplibre-gl-starfield": "https://esm.sh/@geoql/maplibre-gl-starfield@0.1.1"
+    }
+  }
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #0f172a; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+
+    /* Loading overlay */
+    #loading {
+      position: absolute; inset: 0; z-index: 5;
+      background: rgba(15, 23, 42, 0.88);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      color: #e2e8f0; font-size: 14px;
+      backdrop-filter: blur(4px);
+      pointer-events: none;
+    }
+    #loading.hidden { display: none; }
+    #loading .spinner {
+      width: 40px; height: 40px; border: 3px solid #1e293b;
+      border-top-color: #38bdf8; border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin-bottom: 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading .error { color: #ef4444; margin-top: 12px; font-size: 12px; max-width: 500px; text-align: center; word-break: break-all; }
+    #loading .status { color: #94a3b8; margin-top: 8px; font-size: 12px; }
+
+    /* Drop overlay */
+    #drop-overlay {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: rgba(15, 23, 42, 0.92);
+      justify-content: center; align-items: center;
+    }
+    #drop-overlay.active { display: flex; }
+    #drop-overlay .box {
+      border: 3px dashed #38bdf8; border-radius: 16px; padding: 60px 80px;
+      text-align: center; color: #e2e8f0;
+    }
+    #drop-overlay .box h2 { font-size: 24px; margin-bottom: 8px; color: #38bdf8; }
+    #drop-overlay .box p { font-size: 14px; color: #94a3b8; }
+
+    /* ═══ SIDEBAR PANEL ═══ */
+    #panel {
+      position: absolute; top: 12px; left: 12px; z-index: 10;
+      background: linear-gradient(180deg, #1a2332 0%, #1e293b 100%);
+      color: #e2e8f0;
+      border-radius: 14px; width: 320px;
+      max-height: calc(100vh - 80px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+      overflow: hidden;
+      border: 1px solid rgba(56,189,248,0.08);
+    }
+
+    /* Panel Header */
+    #panel-header {
+      position: relative;
+      background: linear-gradient(135deg, #0f172a 0%, #162032 100%);
+      padding: 16px 18px;
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid rgba(30,58,95,0.6);
+    }
+    #panel-header::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #38bdf8, #22c55e, #38bdf8);
+    }
+    #panel-header .icon { font-size: 24px; }
+    #panel-header h1 {
+      font-size: 14px; font-weight: 700;
+      letter-spacing: -0.01em;
+      background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    #panel-header .badge {
+      margin-left: auto;
+      background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+      color: #0f172a;
+      padding: 3px 10px; border-radius: 12px;
+      font-size: 11px; font-weight: 800;
+      box-shadow: 0 0 12px rgba(56,189,248,0.3);
+    }
+
+    /* Panel Body */
+    #panel-body {
+      padding: 16px;
+      max-height: calc(100vh - 80px);
+      overflow-y: auto;
+      scroll-behavior: smooth;
+    }
+    #panel-body::-webkit-scrollbar { width: 5px; }
+    #panel-body::-webkit-scrollbar-track { background: transparent; }
+    #panel-body::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #38bdf8, #334155);
+      border-radius: 3px;
+    }
+    #panel-body::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
+
+    /* ═══ SECTIONS (collapsible) ═══ */
+    .section { margin-bottom: 4px; }
+    .section + .section::before {
+      content: '';
+      display: block;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, #1e3a5f, transparent);
+      margin: 4px 0 12px;
+    }
+    .section-title {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em; color: #64748b;
+      padding: 6px 0;
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.2s;
+    }
+    .section-title:hover { color: #94a3b8; }
+    .section-title .chevron {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px;
+      font-size: 10px; color: #475569;
+      transition: transform 0.25s ease;
+    }
+    .section:not(.collapsed) > .section-title .chevron { transform: rotate(90deg); }
+    .section.collapsed > .section-title .chevron { transform: rotate(0deg); }
+    .section-content {
+      overflow: hidden;
+      transition: max-height 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease;
+      max-height: 2000px;
+      opacity: 1;
+    }
+    .section.collapsed > .section-content {
+      max-height: 0;
+      opacity: 0;
+    }
+
+    /* ═══ STAT CARDS ═══ */
+    .stats-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      margin-bottom: 16px;
+    }
+    .stat-card {
+      position: relative;
+      background: linear-gradient(135deg, #0f172a, #152033);
+      border-radius: 10px; padding: 12px 14px;
+      border: 1px solid #1e3a5f;
+      border-left: 3px solid #334155;
+      transition: all 0.2s;
+      overflow: hidden;
+    }
+    .stat-card:hover {
+      border-color: #475569;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .stat-card::after {
+      content: '';
+      position: absolute; top: 0; right: 0;
+      width: 50px; height: 50px;
+      background: radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .stat-card .sc-icon { font-size: 14px; margin-bottom: 4px; }
+    .stat-card .label {
+      font-size: 10px; color: #64748b; text-transform: uppercase;
+      letter-spacing: 0.06em; font-weight: 500;
+    }
+    .stat-card .value {
+      font-size: 22px; font-weight: 800; color: #e2e8f0;
+      margin-top: 2px; letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-card .value.blue { color: #38bdf8; }
+    .stat-card .value.green { color: #22c55e; }
+    .stat-card:nth-child(1) { border-left-color: #38bdf8; }
+    .stat-card:nth-child(2) { border-left-color: #a78bfa; }
+    .stat-card:nth-child(3) { border-left-color: #22c55e; }
+    .stat-card:nth-child(4) { border-left-color: #f59e0b; }
+
+    /* ═══ FILE DROP ZONE ═══ */
+    #file-drop {
+      border: 2px dashed #334155; border-radius: 10px;
+      padding: 18px; text-align: center; cursor: pointer;
+      transition: all 0.25s;
+      position: relative;
+      background: rgba(15,23,42,0.5);
+    }
+    #file-drop:hover {
+      border-color: #38bdf8;
+      background: rgba(56,189,248,0.05);
+      box-shadow: 0 0 20px rgba(56,189,248,0.08);
+    }
+    #file-drop.loaded {
+      border-color: #22c55e;
+      background: rgba(34,197,94,0.06);
+      border-style: solid;
+    }
+    @keyframes pulse-border {
+      0%, 100% { border-color: #334155; }
+      50% { border-color: #475569; }
+    }
+    #file-drop:not(.loaded):not(:hover) {
+      animation: pulse-border 3s ease-in-out infinite;
+    }
+    #file-drop p { font-size: 12px; color: #94a3b8; }
+    #file-drop .status { font-size: 11px; margin-top: 6px; }
+    #file-drop .status.ok { color: #22c55e; }
+    #file-drop .status.err { color: #ef4444; }
+    #file-drop .status.loading { color: #fbbf24; }
+
+    /* ═══ DISTANCE SLIDER ═══ */
+    .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .slider-row label { font-size: 12px; color: #94a3b8; min-width: 90px; }
+    .slider-row input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none; appearance: none;
+      height: 6px; border-radius: 3px;
+      background: linear-gradient(90deg, #38bdf8, #22c55e);
+      outline: none; opacity: 0.8;
+      transition: opacity 0.2s;
+    }
+    .slider-row input[type="range"]:hover { opacity: 1; }
+    .slider-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+      border: 2px solid #0f172a;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(56,189,248,0.4);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .slider-row input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+      box-shadow: 0 0 16px rgba(56,189,248,0.6);
+    }
+    .slider-row input[type="range"]::-moz-range-thumb {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+      border: 2px solid #0f172a;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(56,189,248,0.4);
+    }
+    .slider-row input[type="range"]::-moz-range-track {
+      height: 6px; border-radius: 3px;
+      background: linear-gradient(90deg, #38bdf8, #22c55e);
+    }
+    .slider-row .val {
+      font-size: 13px; font-weight: 700; color: #38bdf8;
+      min-width: 50px; text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    #filter-count { font-size: 12px; color: #94a3b8; margin-top: 8px; }
+    #filter-count strong { color: #38bdf8; font-weight: 700; }
+
+    /* ═══ FILTER BUTTONS ═══ */
+    .filter-group { margin-bottom: 12px; }
+    .filter-label {
+      font-size: 12px; color: #94a3b8; margin-bottom: 8px; font-weight: 500;
+    }
+    .filter-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+    .filter-btn {
+      padding: 6px 14px; border-radius: 8px;
+      background: linear-gradient(135deg, #0f172a, #152033);
+      border: 1px solid #1e3a5f;
+      color: #94a3b8; font-size: 12px; font-weight: 500;
+      cursor: pointer; transition: all 0.2s;
+      font-family: inherit;
+      position: relative; overflow: hidden;
+    }
+    .filter-btn::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(56,189,248,0.12), rgba(34,197,94,0.08));
+      opacity: 0; transition: opacity 0.2s;
+    }
+    .filter-btn:hover {
+      border-color: #475569; color: #e2e8f0;
+      transform: translateY(-1px);
+    }
+    .filter-btn:hover::before { opacity: 1; }
+    .filter-btn:active { transform: scale(0.96); }
+    .filter-btn.active {
+      background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+      color: #0f172a;
+      border-color: #38bdf8;
+      font-weight: 700;
+      box-shadow: 0 0 16px rgba(56,189,248,0.3);
+    }
+    .filter-btn.active::before { opacity: 0; }
+    .filter-btn.active:hover { transform: translateY(-1px); }
+
+    .filter-select {
+      width: 100%; padding: 8px 12px;
+      background: linear-gradient(135deg, #0f172a, #152033);
+      border: 1px solid #1e3a5f;
+      border-radius: 8px; color: #e2e8f0;
+      font-size: 12px; font-family: inherit;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 14px;
+      padding-right: 28px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .filter-select:focus {
+      outline: none; border-color: #38bdf8;
+      box-shadow: 0 0 0 3px rgba(56,189,248,0.15);
+    }
+    .filter-select option { background: #0f172a; color: #e2e8f0; }
+
+    /* ═══ TOGGLE SWITCH ═══ */
+    .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle .toggle-slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: #334155; border-radius: 20px; transition: 0.25s;
+    }
+    .toggle .toggle-slider::before {
+      content: ""; position: absolute; height: 14px; width: 14px;
+      left: 3px; bottom: 3px; background: #e2e8f0; border-radius: 50%; transition: 0.25s;
+    }
+    .toggle input:checked + .toggle-slider {
+      background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+      box-shadow: 0 0 12px rgba(56,189,248,0.3);
+    }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+    #slider-row.disabled { opacity: 0.35; pointer-events: none; }
+
+    /* ═══ EXPORT BUTTON ═══ */
+    #export-btn {
+      display: none; margin-top: 10px; width: 100%;
+      padding: 10px; border: none; border-radius: 8px;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: #0f172a; font-size: 12px; font-weight: 700;
+      cursor: pointer; font-family: inherit;
+      transition: all 0.2s;
+      box-shadow: 0 2px 8px rgba(34,197,94,0.2);
+    }
+    #export-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(34,197,94,0.35);
+    }
+    #export-btn:active { transform: scale(0.98); }
+
+    /* ═══ UPTD LIST ═══ */
+    .uptd-list { display: flex; flex-direction: column; gap: 6px; }
+    .uptd-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 8px;
+      background: linear-gradient(135deg, #0f172a, #152033);
+      border: 1px solid #1e3a5f;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .uptd-item:hover {
+      border-color: #475569;
+      transform: translateX(2px);
+    }
+    .uptd-item input { accent-color: var(--uptd-color); width: 14px; height: 14px; }
+    .uptd-item .color-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--uptd-color); flex-shrink: 0;
+      box-shadow: 0 0 6px var(--uptd-color);
+    }
+    .uptd-item .name { font-size: 12px; flex: 1; font-weight: 500; }
+    .uptd-item .count { font-size: 11px; color: #64748b; font-variant-numeric: tabular-nums; }
+
+    /* ═══ LEGEND ═══ */
+    #legend {
+      position: absolute; bottom: 48px; right: 12px; z-index: 10;
+      background: linear-gradient(135deg, #1a2332, #1e293b);
+      color: #e2e8f0;
+      border-radius: 12px; padding: 14px 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      border: 1px solid rgba(56,189,248,0.08);
+      font-size: 11px;
+      max-height: calc(100vh - 80px); overflow-y: auto;
+    }
+    #legend h4 {
+      font-size: 11px; font-weight: 700; margin-bottom: 10px;
+      color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .legend-color { width: 20px; height: 4px; border-radius: 2px; }
+    .legend-gradient { width: 100%; height: 10px; border-radius: 4px; margin: 6px 0 4px; }
+    .legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: #64748b; }
+
+    /* ═══ BASEMAP GALLERY ═══ */
+    #basemap-section { margin-top: 0; }
+    .basemap-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .basemap-item {
+      position: relative; border-radius: 10px; overflow: hidden;
+      cursor: pointer; border: 2px solid transparent;
+      transition: all 0.25s; aspect-ratio: 16/10;
+    }
+    .basemap-item:hover {
+      border-color: #475569;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .basemap-item.active {
+      border-color: #38bdf8;
+      box-shadow: 0 0 12px rgba(56,189,248,0.3);
+    }
+    .basemap-item img {
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .basemap-item .label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.85));
+      padding: 6px 8px; font-size: 10px; color: #e2e8f0;
+      font-weight: 500;
+    }
+
+    /* ═══ POPUP ═══ */
+    .maplibregl-popup-content {
+      background: #1e293b !important; color: #e2e8f0 !important;
+      border-radius: 10px !important; padding: 12px 16px !important;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
+      font-family: 'Inter', system-ui, sans-serif !important;
+      font-size: 12px !important; max-width: 280px;
+      border: 1px solid rgba(56,189,248,0.1) !important;
+    }
+    .maplibregl-popup-content b { color: #38bdf8; }
+    .maplibregl-popup-tip { border-top-color: #1e293b !important; }
+    .maplibregl-popup-close-button { color: #94a3b8 !important; font-size: 16px !important; }
+  </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-    <!-- Header -->
-    <header class="bg-gradient-to-r from-blue-700 to-blue-900 text-white shadow-lg">
-        <div class="max-w-7xl mx-auto px-4 py-6">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="text-2xl md:text-3xl font-bold">🏫 Dashboard Sekolah Jawa Barat</h1>
-                    <p class="text-blue-200 mt-1 text-sm md:text-base">Data Sekolah di Sekitar Jalan Provinsi - SMA, SMK, SLB</p>
-                </div>
-                <div class="text-right text-sm text-blue-200">
-                    <div>377 Sekolah</div>
-                    <div>27 Kabupaten/Kota</div>
-                </div>
-            </div>
-        </div>
-    </header>
+<body>
 
-    <main class="max-w-7xl mx-auto px-4 py-6">
-        <!-- Panel Cards -->
-        <div id="panel-cards" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-            <!-- Cards will be rendered by JS -->
-        </div>
+<div id="map">
+  <div id="loading">
+    <div class="spinner"></div>
+    <div>Loading map...</div>
+    <div class="status" id="load-status"></div>
+    <div class="error" id="load-error"></div>
+  </div>
+</div>
 
-        <!-- Filters -->
-        <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
-            <div class="flex items-center gap-2 mb-3">
-                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
-                </svg>
-                <span class="font-semibold text-gray-700">Filter Data</span>
-                <button id="reset-btn" onclick="resetFilters()" class="ml-auto text-sm text-blue-600 hover:text-blue-800 font-medium">Reset Semua</button>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
-                <!-- Jenjang Filter -->
-                <div>
-                    <label class="block text-xs font-medium text-gray-500 mb-1">Jenjang</label>
-                    <div class="flex flex-wrap gap-1" id="filter-jenjang">
-                        <button onclick="toggleFilter('jenjang','SMA')" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium transition-all" data-value="SMA">SMA</button>
-                        <button onclick="toggleFilter('jenjang','SMK')" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium transition-all" data-value="SMK">SMK</button>
-                        <button onclick="toggleFilter('jenjang','SLB')" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium transition-all" data-value="SLB">SLB</button>
-                    </div>
-                </div>
-                <!-- Status Filter -->
-                <div>
-                    <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
-                    <div class="flex flex-wrap gap-1" id="filter-status">
-                        <button onclick="toggleFilter('status','NEGERI')" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium transition-all" data-value="NEGERI">Negeri</button>
-                        <button onclick="toggleFilter('status','SWASTA')" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium transition-all" data-value="SWASTA">Swasta</button>
-                    </div>
-                </div>
-                <!-- Validasi Filter -->
-                <div>
-                    <label class="block text-xs font-medium text-gray-500 mb-1">Validasi Manual</label>
-                    <div class="flex flex-wrap gap-1" id="filter-validasi">
-                        <button onclick="toggleFilter('validasi','Valid')" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium transition-all" data-value="Valid">Valid</button>
-                        <button onclick="toggleFilter('validasi','Tidak Valid')" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium transition-all" data-value="Tidak Valid">Tidak Valid</button>
-                    </div>
-                </div>
-                <!-- UPTD Filter -->
-                <div>
-                    <label class="block text-xs font-medium text-gray-500 mb-1">UPTD</label>
-                    <select id="filter-uptd" onchange="applyFilters()" class="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8">
-                        <option value="">Semua UPTD</option>
-                        <option value="UPTD-I">UPTD-I</option>
-                        <option value="UPTD-II">UPTD-II</option>
-                        <option value="UPTD-III">UPTD-III</option>
-                        <option value="UPTD-IV">UPTD-IV</option>
-                    </select>
-                </div>
-                <!-- Kota/Kab Filter -->
-                <div>
-                    <label class="block text-xs font-medium text-gray-500 mb-1">Kota/Kabupaten</label>
-                    <select id="filter-kabupaten" onchange="applyFilters()" class="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8">
-                        <option value="">Semua Kota/Kab</option>
-                        <!-- Options rendered by JS -->
-                    </select>
-                </div>
-            </div>
+<div id="drop-overlay">
+  <div class="box">
+    <h2>Drop .parquet files here</h2>
+    <p>ruas_jalan.parquet + sekolah_matched.parquet</p>
+  </div>
+</div>
+
+<div id="panel">
+  <div id="panel-header">
+    <span class="icon">🏫</span>
+    <h1>Peta Sekolah Jalan Provinsi</h1>
+    <span class="badge" id="school-badge">0</span>
+  </div>
+  <div id="panel-body">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="sc-icon">🛣️</div>
+        <div class="label">Roads</div>
+        <div class="value" id="stat-roads">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-icon">🏫</div>
+        <div class="label">Schools</div>
+        <div class="value" id="stat-schools">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-icon">✅</div>
+        <div class="label">Matched</div>
+        <div class="value green" id="stat-matched">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-icon">📍</div>
+        <div class="label">Within 60m</div>
+        <div class="value blue" id="stat-nearby">0</div>
+      </div>
+    </div>
+
+    <div class="section" data-section="files">
+      <div class="section-title"><span class="chevron">▸</span> Data Files</div>
+      <div class="section-content">
+        <div id="file-drop">
+          <p>Drag & drop <strong>ruas_jalan.parquet</strong> + <strong>sekolah_377.parquet</strong></p>
+          <p style="margin-top:4px;font-size:11px;color:#64748b;">or click to select files</p>
+          <input type="file" id="file-input" multiple accept=".parquet" style="display:none;" />
+          <div class="status" id="file-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ DATA FILTERS ═══ -->
+    <div class="section" id="data-filter-section" data-section="filters" style="display:none;">
+      <div class="section-title"><span class="chevron">▸</span> Data Filters</div>
+      <div class="section-content">
+        <div class="filter-group">
+          <div class="filter-label">Jenjang</div>
+          <div class="filter-toggles" id="filter-jenjang">
+            <button class="filter-btn" data-category="jenjang" data-value="SMA">SMA</button>
+            <button class="filter-btn" data-category="jenjang" data-value="SMK">SMK</button>
+            <button class="filter-btn" data-category="jenjang" data-value="SLB">SLB</button>
+          </div>
         </div>
 
-        <!-- Search & Export -->
-        <div class="flex flex-col md:flex-row gap-3 mb-4">
-            <div class="flex-1">
-                <input type="text" id="search-input" onkeyup="applyFilters()" placeholder="🔍 Cari nama sekolah..." class="search-input w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            </div>
-            <button onclick="exportToExcel()" class="px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center gap-2 transition-colors">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                Export Excel
-            </button>
+        <div class="filter-group">
+          <div class="filter-label">Status</div>
+          <div class="filter-toggles" id="filter-status">
+            <button class="filter-btn" data-category="status" data-value="NEGERI">Negeri</button>
+            <button class="filter-btn" data-category="status" data-value="SWASTA">Swasta</button>
+          </div>
         </div>
 
-        <!-- Results Count -->
-        <div class="text-sm text-gray-500 mb-3">
-            Menampilkan <span id="result-count" class="font-semibold text-gray-700">0</span> dari <span id="total-count" class="font-semibold text-gray-700">0</span> sekolah
+        <div class="filter-group">
+          <div class="filter-label">Validasi Manual</div>
+          <div class="filter-toggles" id="filter-validasi">
+            <button class="filter-btn" data-category="validasi" data-value="Valid">Valid</button>
+            <button class="filter-btn" data-category="validasi" data-value="Tidak Valid">Tidak Valid</button>
+          </div>
         </div>
 
-        <!-- Data Table -->
-        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead class="bg-gray-100 text-gray-600">
-                        <tr>
-                            <th class="px-4 py-3 text-left font-semibold cursor-pointer hover:bg-gray-200" onclick="sortTable('no')">No</th>
-                            <th class="px-4 py-3 text-left font-semibold cursor-pointer hover:bg-gray-200" onclick="sortTable('nama_sekolah')">Nama Sekolah</th>
-                            <th class="px-4 py-3 text-left font-semibold cursor-pointer hover:bg-gray-200" onclick="sortTable('jenjang')">Jenjang</th>
-                            <th class="px-4 py-3 text-left font-semibold cursor-pointer hover:bg-gray-200" onclick="sortTable('status')">Status</th>
-                            <th class="px-4 py-3 text-left font-semibold cursor-pointer hover:bg-gray-200" onclick="sortTable('kabupaten')">Kabupaten</th>
-                            <th class="px-4 py-3 text-left font-semibold cursor-pointer hover:bg-gray-200" onclick="sortTable('jarak_m')">Jarak (m)</th>
-                            <th class="px-4 py-3 text-left font-semibold cursor-pointer hover:bg-gray-200" onclick="sortTable('validasi')">Validasi</th>
-                            <th class="px-4 py-3 text-left font-semibold cursor-pointer hover:bg-gray-200" onclick="sortTable('uptd')">UPTD</th>
-                            <th class="px-4 py-3 text-center font-semibold">Aksi</th>
-                        </tr>
-                    </thead>
-                    <tbody id="table-body" class="divide-y divide-gray-100">
-                        <!-- Rows rendered by JS -->
-                    </tbody>
-                </table>
-            </div>
-            <!-- Pagination -->
-            <div class="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-                <div class="text-sm text-gray-500">
-                    Halaman <span id="current-page">1</span> dari <span id="total-pages">1</span>
-                </div>
-                <div class="flex gap-2">
-                    <button onclick="changePage(-1)" id="prev-btn" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Sebelumnya</button>
-                    <button onclick="changePage(1)" id="next-btn" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Berikutnya</button>
-                </div>
-            </div>
+        <div class="filter-group">
+          <div class="filter-label">Kota/Kabupaten</div>
+          <select id="kabupaten-filter" class="filter-select">
+            <option value="">Semua</option>
+          </select>
         </div>
-    </main>
+      </div>
+    </div>
 
-    <!-- Footer -->
-    <footer class="bg-gray-800 text-gray-400 text-center py-4 mt-8">
-        <p class="text-sm">Dashboard Sekolah Jawa Barat © 2024 | Data per Agustus 2024</p>
-    </footer>
+    <!-- ═══ DISTANCE FILTER ═══ -->
+    <div class="section" id="filter-section" data-section="distance" style="display:none;">
+      <div class="section-title"><span class="chevron">▸</span> Distance Filter</div>
+      <div class="section-content">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+          <label class="toggle">
+            <input type="checkbox" id="filter-toggle" checked />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:12px; color:#94a3b8;" id="filter-toggle-label">Filter ON</span>
+        </div>
+        <div class="slider-row" id="slider-row">
+          <label>Max distance</label>
+          <input type="range" id="dist-slider" min="0" max="600" value="60" step="10" />
+          <span class="val" id="dist-val">60m</span>
+        </div>
+        <div id="filter-count">
+          Showing <strong id="visible-count">0</strong> of <strong id="total-count">0</strong> schools
+        </div>
+        <button id="export-btn" style="display:none;">
+          ⬇ Export 0 to XLSX
+        </button>
+      </div>
+    </div>
 
-    <script src="app.js"></script>
+    <div class="section" id="uptd-section" data-section="uptd" style="display:none;">
+      <div class="section-title"><span class="chevron">▸</span> Road Management (UPTD)</div>
+      <div class="section-content">
+        <div class="uptd-list" id="uptd-list"></div>
+      </div>
+    </div>
+
+    <div class="section" id="dist-legend-section" data-section="legend" style="display:none;">
+      <div class="section-title"><span class="chevron">▸</span> Distance Legend</div>
+      <div class="section-content">
+        <div class="legend-gradient" style="background: linear-gradient(to right, #2166ac, #67a9cf, #d1e5f0, #fddbc7, #ef8a62, #b2182b);"></div>
+        <div class="legend-labels">
+          <span>0m</span><span>50m</span><span>60m</span><span>100m</span><span>150m</span><span>200m</span><span>600m+</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="basemap-section" data-section="basemap">
+      <div class="section-title"><span class="chevron">▸</span> Basemap</div>
+      <div class="section-content">
+        <div class="basemap-grid" id="basemap-grid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="legend">
+  <h4>Road by UPTD</h4>
+  <div id="legend-roads"></div>
+  <div style="margin-top:10px;">
+    <h4>School by Distance</h4>
+      <div class="legend-gradient" style="background: linear-gradient(to right, #2166ac, #67a9cf, #d1e5f0, #fddbc7, #ef8a62, #b2182b); height:8px;"></div>
+      <div class="legend-labels"><span>0m</span><span>50m</span><span>60m</span><span>100m</span><span>200m</span><span>600m+</span></div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+      <span style="width:10px;height:10px;border-radius:50%;background:#6b7280;"></span>
+      <span style="font-size:10px;color:#64748b;">N/A (unmatched)</span>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  // ═══════════════════════════════════════════════════════════
+  // STEP 0: IMPORTS
+  // ═══════════════════════════════════════════════════════════
+  import { MaplibreStarfieldLayer } from '@geoql/maplibre-gl-starfield';
+
+  // ═══════════════════════════════════════════════════════════
+  // STEP 1: UTILITY + MAP (creates immediately, no waiting)
+  // ═══════════════════════════════════════════════════════════
+  const $ = id => document.getElementById(id);
+  const loadStatus = $("load-status");
+  const loadError = $("load-error");
+
+  const UPTD_COLORS = {
+    "UPTD-I": "#e41a1c", "UPTD-II": "#377eb8",
+    "UPTD-III": "#4daf4a", "UPTD-IV": "#984ea3",
+  };
+  const UPTD_DEFAULT = "#999999";
+
+  const map = new maplibregl.Map({
+    container: "map",
+    style: "https://tiles.openfreemap.org/styles/bright",
+    center: [0, 20],
+    zoom: 1.5,
+    projection: { type: "globe" },
+  });
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), "bottom-left");
+
+  // Re-ensure globe projection after style loads (safety fallback)
+  map.on("style.load", () => {
+    map.setProjection({ type: "globe" });
+  });
+
+  // Starfield — reusable function to add behind all layers
+  function addStarfield() {
+    if (map.getLayer("starfield")) map.removeLayer("starfield");
+    const starfield = new MaplibreStarfieldLayer({
+      starCount: 4000,
+      starSize: 2.0,
+      galaxyTextureUrl: "milkyway.jpg",
+      galaxyBrightness: 0.35,
+    });
+    map.addLayer(starfield, map.getStyle().layers[0]?.id);
+  }
+
+  // Add starfield on first load
+  map.once("load", () => {
+    addStarfield();
+  });
+
+  // ─── One-time school event handler setup ───────────────
+  let schoolEventsSetup = false;
+  function setupSchoolEvents() {
+    if (schoolEventsSetup) return;
+    schoolEventsSetup = true;
+    let hoveredId = null;
+    map.on("mouseenter", "schools-circle", () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mousemove", "schools-circle", (e) => {
+      if (!e.features.length) return;
+      if (hoveredId !== null) map.setFeatureState({ source: "schools", id: hoveredId }, { hover: false });
+      hoveredId = e.features[0].id;
+      map.setFeatureState({ source: "schools", id: hoveredId }, { hover: true });
+    });
+    map.on("mouseleave", "schools-circle", () => {
+      map.getCanvas().style.cursor = "";
+      if (hoveredId !== null) { map.setFeatureState({ source: "schools", id: hoveredId }, { hover: false }); hoveredId = null; }
+    });
+    map.on("click", "schools-circle", (e) => {
+      if (!e.features.length) return;
+      const p = e.features[0].properties;
+      const dist = p.distance_m != null ? Number(p.distance_m).toFixed(1) + "m" : "N/A";
+
+      // Build structured popup with all properties
+      const schoolFields = [
+        ["NAMA SEKOLAH", "School Name"],
+        ["NPSN", "NPSN"],
+        ["BENTUK", "Type"],
+        ["Jenjang", "Level"],
+        ["NAMA DUSUN", "Hamlet"],
+        ["DESA/KELURAHAN", "Village"],
+        ["KECAMATAN", "District"],
+        ["KABUPATEN", "Regency"],
+        ["PROVINSI", "Province"],
+        ["KODE POS", "Postal Code"],
+        ["LINTANG", "Latitude"],
+        ["BUJUR", "Longitude"],
+        ["STATUS", "Status"],
+        ["AKREDITASI", "Accreditation"],
+        ["SUMBER LISTRIK", "Power Source"],
+        ["AKSES INTERNET", "Internet Access"],
+        ["SUMBER AIR", "Water Source"],
+        ["KECUKUPAN AIR", "Water Sufficiency"],
+      ];
+
+      const roadFields = [
+        ["nearest_road_name", "Road Name"],
+        ["nearest_road_kode", "Road Code"],
+        ["nearest_road_id", "Road ID"],
+        ["nearest_road_panjang_km", "Road Length (km)"],
+        ["nearest_road_unit_kerja", "UPTD"],
+      ];
+
+      let html = `<div style="font-size:12px; line-height:1.5; max-height:400px; overflow-y:auto;">`;
+      html += `<div style="font-size:14px; font-weight:700; color:#38bdf8; margin-bottom:8px;">${p["NAMA SEKOLAH"] || "School"}</div>`;
+
+      // School info section
+      html += `<div style="margin-bottom:8px;">`;
+      schoolFields.forEach(([key, label]) => {
+        if (p[key] != null && p[key] !== "") {
+          html += `<div><span style="color:#64748b;">${label}:</span> <b>${p[key]}</b></div>`;
+        }
+      });
+      html += `</div>`;
+
+      // Distance section
+      html += `<div style="background:#0f172a; padding:6px 8px; border-radius:4px; margin-bottom:8px;">`;
+      html += `<div><span style="color:#64748b;">Distance to Road:</span> <b style="color:#38bdf8;">${dist}</b></div>`;
+      html += `</div>`;
+
+      // Road info section
+      html += `<div style="border-top:1px solid #334155; padding-top:6px;">`;
+      html += `<div style="font-weight:600; color:#94a3b8; margin-bottom:4px;">Nearest Road</div>`;
+      roadFields.forEach(([key, label]) => {
+        if (p[key] != null && p[key] !== "") {
+          html += `<div><span style="color:#64748b;">${label}:</span> <b>${p[key]}</b></div>`;
+        }
+      });
+      html += `</div>`;
+
+      html += `</div>`;
+
+      new maplibregl.Popup({ maxWidth: "320px" })
+        .setLngLat(e.lngLat)
+        .setHTML(html)
+        .addTo(map);
+    });
+  }
+  setupSchoolEvents();
+
+  // ═══════════════════════════════════════════════════════════
+  // STEP 2: LOAD WASM DEPENDENCIES IN BACKGROUND
+  // ═══════════════════════════════════════════════════════════
+  let arrow, parquet;
+  const wasmReady = (async () => {
+    loadStatus.textContent = "Loading Arrow library...";
+    arrow = await import("https://esm.sh/apache-arrow");
+    loadStatus.textContent = "Loading parquet-wasm...";
+    parquet = await import("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm.js");
+    loadStatus.textContent = "Initializing WASM runtime...";
+    try {
+      await parquet.default();
+    } catch (e) {
+      console.warn("parquet.default() failed, trying initSync fallback:", e.message);
+      const wasmResp = await fetch("https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.0/esm/parquet_wasm_bg.wasm");
+      const wasmModule = await WebAssembly.compile(await wasmResp.arrayBuffer());
+      parquet.initSync(wasmModule);
+    }
+    loadStatus.textContent = "WASM ready. Loading data...";
+    return true;
+  })();
+
+  // ═══════════════════════════════════════════════════════════
+  // STEP 3: WKB PARSER (from geoparquet-visualizer)
+  // ═══════════════════════════════════════════════════════════
+  function parseWKB(wkbBuffer) {
+    try {
+      const view = new DataView(wkbBuffer);
+      let offset = 0;
+      const byteOrder = view.getUint8(offset++);
+      const littleEndian = byteOrder === 1;
+      const geomType = view.getUint32(offset, littleEndian);
+      offset += 4;
+      const actualGeomType = geomType & 0xFF;
+
+      function readPoint() {
+        const x = view.getFloat64(offset, littleEndian); offset += 8;
+        const y = view.getFloat64(offset, littleEndian); offset += 8;
+        return [x, y];
+      }
+      function readPoints() {
+        const n = view.getUint32(offset, littleEndian); offset += 4;
+        return Array.from({ length: n }, readPoint);
+      }
+      function readLinearRing() {
+        const n = view.getUint32(offset, littleEndian); offset += 4;
+        return Array.from({ length: n }, readPoint);
+      }
+      function readPolygonRings() {
+        const n = view.getUint32(offset, littleEndian); offset += 4;
+        return Array.from({ length: n }, readLinearRing);
+      }
+
+      switch (actualGeomType) {
+        case 1:  return { type: "Point", coordinates: readPoint() };
+        case 2:  return { type: "LineString", coordinates: readPoints() };
+        case 3:  return { type: "Polygon", coordinates: readPolygonRings() };
+        case 4:  return { type: "MultiPoint", coordinates: readPoints() };
+        case 5: {
+          const n = view.getUint32(offset, littleEndian); offset += 4;
+          const lines = [];
+          for (let i = 0; i < n; i++) {
+            offset++; offset += 4; // skip sub-entity WKB header
+            lines.push(readPoints());
+          }
+          return { type: "MultiLineString", coordinates: lines };
+        }
+        case 6: {
+          const n = view.getUint32(offset, littleEndian); offset += 4;
+          const polygons = [];
+          for (let i = 0; i < n; i++) {
+            offset++; offset += 4; // skip sub-entity WKB header
+            polygons.push(readPolygonRings());
+          }
+          return { type: "MultiPolygon", coordinates: polygons };
+        }
+        default:
+          return null;
+      }
+    } catch (e) {
+      console.error("WKB parse error:", e);
+      return null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // STEP 3: PARQUET → GEOJSON (streaming, like geoparquet-visualizer)
+  // ═══════════════════════════════════════════════════════════
+  async function loadParquetToGeoJSON(source, onProgress) {
+    const sourceName = source instanceof File ? source.name : source;
+    let file;
+
+    if (source instanceof File) {
+      file = source;
+    } else {
+      // Fetch the file from URL
+      const resp = await fetch(source);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${source}`);
+      const blob = await resp.blob();
+      file = new File([blob], sourceName);
+    }
+
+    console.log(`[loadParquet] ${sourceName}: ${file.size} bytes`);
+
+    // Use the streaming API — exactly like geoparquet-visualizer
+    const parquetFile = await parquet.ParquetFile.fromFile(file);
+    const recordBatchStream = await parquetFile.stream();
+    const reader = recordBatchStream.getReader();
+
+    const features = [];
+    let batchCount = 0;
+    let totalProcessed = 0;
+
+    // Detect geometry column from first row
+    let geometryColumnName = null;
+
+    while (true) {
+      const { done, value: wasmRecordBatch } = await reader.read();
+      if (done) break;
+
+      const ipcStream = wasmRecordBatch.intoIPCStream();
+      const table = arrow.tableFromIPC(ipcStream);
+      const rowArray = table.toArray();
+
+      // Detect geometry column on first batch
+      if (!geometryColumnName && rowArray.length > 0) {
+        const firstRow = rowArray[0].toJSON();
+        const commonNames = ["geometry", "geom", "wkb_geometry", "shape", "wkb", "geo_shape"];
+        for (const name of commonNames) {
+          if (firstRow[name] instanceof Uint8Array) {
+            geometryColumnName = name;
+            break;
+          }
+        }
+        if (!geometryColumnName) {
+          // Fallback: look for any Uint8Array column
+          for (const [key, val] of Object.entries(firstRow)) {
+            if (val instanceof Uint8Array) {
+              geometryColumnName = key;
+              break;
+            }
+          }
+        }
+        console.log(`[loadParquet] Detected geometry column: ${geometryColumnName}`);
+      }
+
+      for (const rowObject of rowArray) {
+        const jsonData = rowObject.toJSON();
+        const row = {};
+
+        // Convert to plain JS, handling Uint8Array and BigInt
+        for (const [key, value] of Object.entries(jsonData)) {
+          if (value instanceof Uint8Array) {
+            row[key] = new Uint8Array(value);
+          } else if (typeof value === "bigint") {
+            row[key] = Number(value);
+          } else if (value && typeof value.toJSON === "function") {
+            // Arrow StructRow — recurse
+            const plain = {};
+            const inner = value.toJSON();
+            for (const [k, v] of Object.entries(inner)) {
+              plain[k] = typeof v === "bigint" ? Number(v) : v;
+            }
+            row[key] = plain;
+          } else {
+            row[key] = value;
+          }
+        }
+
+        // Parse geometry
+        let geometry = null;
+        if (geometryColumnName && row[geometryColumnName] instanceof Uint8Array) {
+          const wkb = row[geometryColumnName];
+          const buffer = wkb.buffer.slice(wkb.byteOffset, wkb.byteOffset + wkb.byteLength);
+          geometry = parseWKB(buffer);
+        }
+
+        // Fallback: lon/lat columns
+        if (!geometry) {
+          const lon = row.lon || row.longitude || row.lng;
+          const lat = row.lat || row.latitude;
+          if (typeof lon === "number" && typeof lat === "number" && !isNaN(lon) && !isNaN(lat)) {
+            geometry = { type: "Point", coordinates: [lon, lat] };
+          }
+        }
+
+        if (geometry) {
+          const properties = { ...row };
+          if (geometryColumnName) delete properties[geometryColumnName];
+          delete properties.geometry;
+          delete properties.geometry_bbox;
+
+          features.push({
+            type: "Feature",
+            id: totalProcessed,
+            geometry,
+            properties
+          });
+        }
+        totalProcessed++;
+      }
+
+      batchCount++;
+      if (onProgress) onProgress(batchCount, totalProcessed);
+      console.log(`[loadParquet] Batch ${batchCount}: ${totalProcessed} features so far`);
+    }
+
+    console.log(`[loadParquet] Done: ${features.length} features in ${batchCount} batches`);
+    return { type: "FeatureCollection", features };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // BASEMAP GALLERY (from madewithmaplibre.com/basemaps/gallery)
+  // ═══════════════════════════════════════════════════════════
+  const BASEMAPS = [
+    { name: "Liberty", style: "https://tiles.openfreemap.org/styles/liberty", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-liberty.webp" },
+    { name: "Bright", style: "https://tiles.openfreemap.org/styles/bright", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-bright.webp" },
+    { name: "Positron", style: "https://tiles.openfreemap.org/styles/positron", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-positron.webp" },
+    { name: "Dark", style: "https://tiles.openfreemap.org/styles/dark", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-dark.webp" },
+    { name: "Fiord", style: "https://tiles.openfreemap.org/styles/fiord", thumb: "https://madewithmaplibre.com/thumbnails/openfreemap-fiord.webp" },
+  ];
+
+  let currentBasemap = "Bright";
+  let isSwitchingStyle = false;
+
+  function initBasemapGallery() {
+    const grid = $("basemap-grid");
+    grid.innerHTML = "";
+    BASEMAPS.forEach(bm => {
+      const item = document.createElement("div");
+      item.className = "basemap-item" + (bm.name === currentBasemap ? " active" : "");
+      item.innerHTML = `<img src="${bm.thumb}" alt="${bm.name}" loading="lazy"><div class="label">${bm.name}</div>`;
+      item.addEventListener("click", () => switchBasemap(bm));
+      grid.appendChild(item);
+    });
+  }
+
+  function switchBasemap(bm) {
+    if (bm.name === currentBasemap || isSwitchingStyle) return;
+    isSwitchingStyle = true;
+    const prevBasemap = currentBasemap;
+    currentBasemap = bm.name;
+
+    // Update gallery active state immediately
+    document.querySelectorAll(".basemap-item").forEach((item, i) => {
+      item.classList.toggle("active", BASEMAPS[i].name === bm.name);
+    });
+
+    // Save data and view state
+    const savedRoads = roadsGeoJSON;
+    const savedSchools = schoolsGeoJSON;
+    const viewState = {
+      center: map.getCenter(), zoom: map.getZoom(),
+      pitch: map.getPitch(), bearing: map.getBearing()
+    };
+
+    const onStyleLoaded = () => {
+      // Re-add starfield after style change
+      addStarfield();
+      // Re-set globe projection after style change
+      map.setProjection({ type: "globe" });
+
+      roadsGeoJSON = savedRoads;
+      schoolsGeoJSON = savedSchools;
+      if (savedRoads) addRoadsLayer();
+      if (savedSchools) addSchoolsLayer();
+      map.setCenter(viewState.center);
+      map.setZoom(viewState.zoom);
+      if (viewState.pitch) map.setPitch(viewState.pitch);
+      if (viewState.bearing) map.setBearing(viewState.bearing);
+      if (savedRoads && savedSchools) {
+        updateFilters();
+        updateRoadVisibility();
+        updateStats();
+      }
+      isSwitchingStyle = false;
+    };
+
+    map.once("style.load", onStyleLoaded);
+    map.setStyle(bm.style);
+
+    // Fallback: if style.load never fires, force after 2s
+    setTimeout(() => {
+      if (isSwitchingStyle && savedRoads) {
+        map.off("style.load", onStyleLoaded);
+        // Re-add starfield and projection in fallback too
+        addStarfield();
+        map.setProjection({ type: "globe" });
+        roadsGeoJSON = savedRoads;
+        schoolsGeoJSON = savedSchools;
+        if (savedRoads) addRoadsLayer();
+        if (savedSchools) addSchoolsLayer();
+        if (savedRoads && savedSchools) {
+          updateFilters();
+          updateRoadVisibility();
+          updateStats();
+        }
+        isSwitchingStyle = false;
+      }
+    }, 2000);
+  }
+
+  initBasemapGallery();
+
+  let roadsGeoJSON = null;
+  let schoolsGeoJSON = null;
+  let activeFilters = new Set();
+
+  // ─── Data Filter State ────────────────────────────────
+  // Each category holds the SET of ACTIVE values.
+  // Empty Set = no filter for that category (show all).
+  // If ALL values in a category are selected, treat as "show all" (skip filter).
+  const dataFilters = {
+    jenjang: new Set(),   // values: "SMA", "SMK", "SLB"
+    status: new Set(),    // values: "NEGERI", "SWASTA"
+    validasi: new Set(),  // values: "Valid", "Tidak Valid"
+    kabupaten: "",        // "" = Semua
+  };
+  const JENJANG_TOTAL = 3;
+  const STATUS_TOTAL = 2;
+  const VALIDASI_TOTAL = 2;
+
+  // ─── Data Filter Button Handlers ──────────────────────
+  document.querySelectorAll(".filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const category = btn.dataset.category;
+      const value = btn.dataset.value;
+      const filterSet = dataFilters[category];
+      if (!filterSet) return;
+
+      if (filterSet.has(value)) {
+        filterSet.delete(value);
+        btn.classList.remove("active");
+      } else {
+        filterSet.add(value);
+        btn.classList.add("active");
+      }
+      updateFilters();
+    });
+  });
+
+  // ─── Kabupaten Dropdown Handler ───────────────────────
+  $("kabupaten-filter").addEventListener("change", (e) => {
+    dataFilters.kabupaten = e.target.value;
+    updateFilters();
+  });
+
+  // DOM
+  const fileDrop = $("file-drop");
+  const fileInput = $("file-input");
+  const fileStatus = $("file-status");
+
+  // ─── File drop ────────────────────────────────────────────
+  fileDrop.addEventListener("click", (e) => { e.stopPropagation(); fileInput.click(); });
+  fileInput.addEventListener("change", async (e) => {
+    if (e.target.files.length) await handleFiles(e.target.files);
+  });
+
+  let dragCounter = 0;
+  document.body.addEventListener("dragenter", (e) => { e.preventDefault(); dragCounter++; $("drop-overlay").classList.add("active"); });
+  document.body.addEventListener("dragleave", (e) => { e.preventDefault(); dragCounter--; if (dragCounter <= 0) { dragCounter = 0; $("drop-overlay").classList.remove("active"); } });
+  document.body.addEventListener("dragover", (e) => { e.preventDefault(); });
+  document.body.addEventListener("drop", async (e) => {
+    e.preventDefault(); dragCounter = 0;
+    $("drop-overlay").classList.remove("active");
+    if (e.dataTransfer.files.length) await handleFiles(e.dataTransfer.files);
+  });
+
+  async function handleFiles(files) {
+    const fileArr = Array.from(files);
+    const roadsFile = fileArr.find(f => f.name.includes("jalan") || f.name.includes("ruas"));
+    const schoolsFile = fileArr.find(f => f.name.includes("sekolah") || f.name.includes("school"));
+
+    if (!roadsFile && !schoolsFile) {
+      fileStatus.className = "status err";
+      fileStatus.textContent = "Need ruas_jalan.parquet + sekolah_matched.parquet";
+      return;
+    }
+
+    try {
+      if (roadsFile) {
+        fileStatus.className = "status loading";
+        fileStatus.textContent = `Loading ${roadsFile.name} (streaming)...`;
+        roadsGeoJSON = await loadParquetToGeoJSON(roadsFile, (batch, total) => {
+          fileStatus.textContent = `Roads: batch ${batch}, ${total} features...`;
+        });
+        addRoadsLayer();
+      }
+
+      if (schoolsFile) {
+        fileStatus.className = "status loading";
+        fileStatus.textContent = `Loading ${schoolsFile.name} (streaming)...`;
+        schoolsGeoJSON = await loadParquetToGeoJSON(schoolsFile, (batch, total) => {
+          fileStatus.textContent = `Schools: batch ${batch}, ${total} features...`;
+        });
+        addSchoolsLayer();
+      }
+
+      if (roadsGeoJSON && schoolsGeoJSON) {
+        fileDrop.classList.add("loaded");
+        fileStatus.className = "status ok";
+        fileStatus.textContent = `Loaded ${roadsGeoJSON.features.length} roads, ${schoolsGeoJSON.features.length} schools`;
+        showUI(); updateStats(); fitBounds();
+      } else if (roadsGeoJSON) {
+        fileStatus.className = "status ok";
+        fileStatus.textContent = `Loaded ${roadsGeoJSON.features.length} roads. Drop schools next.`;
+      } else if (schoolsGeoJSON) {
+        fileStatus.className = "status ok";
+        fileStatus.textContent = `Loaded ${schoolsGeoJSON.features.length} schools. Drop roads next.`;
+      }
+    } catch (err) {
+      console.error("handleFiles error:", err);
+      fileStatus.className = "status err";
+      fileStatus.textContent = `Error: ${err.message}`;
+    }
+  }
+
+  // ─── Layers ───────────────────────────────────────────────
+  function addRoadsLayer() {
+    if (map.getSource("roads")) { map.getSource("roads").setData(roadsGeoJSON); return; }
+    map.addSource("roads", { type: "geojson", data: roadsGeoJSON });
+    map.addLayer({
+      id: "roads-line", type: "line", source: "roads",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": [
+          "match", ["get", "unit_kerja_kode"],
+          "UPTD-I", UPTD_COLORS["UPTD-I"], "UPTD-II", UPTD_COLORS["UPTD-II"],
+          "UPTD-III", UPTD_COLORS["UPTD-III"], "UPTD-IV", UPTD_COLORS["UPTD-IV"],
+          UPTD_DEFAULT
+        ],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 12, 2.5, 16, 4, 20, 6],
+        "line-opacity": 0.85
+      }
+    });
+  }
+
+  function addSchoolsLayer() {
+    if (map.getSource("schools")) { map.getSource("schools").setData(schoolsGeoJSON); updateFilters(); return; }
+    map.addSource("schools", { type: "geojson", data: schoolsGeoJSON, promoteId: "id" });
+    map.addLayer({
+      id: "schools-circle", type: "circle", source: "schools",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 2, 12, 4, 16, 7, 20, 10],
+        "circle-color": [
+          "case",
+          ["==", ["get", "distance_m"], null], "#6b7280",
+          ["interpolate", ["linear"], ["get", "distance_m"],
+            0, "#2166ac", 50, "#67a9cf", 60, "#d1e5f0",
+            100, "#fddbc7", 150, "#ef8a62", 200, "#b2182b", 600, "#b2182b"
+          ]
+        ],
+        "circle-stroke-color": "white",
+        "circle-stroke-width": ["case", ["boolean", ["feature-state", "hover"], false], 2, 0.5],
+        "circle-opacity": 0.9
+      }
+    });
+  }
+
+  // ─── Filters ──────────────────────────────────────────────
+  function updateFilters() {
+    if (!map.getLayer("schools-circle")) return;
+
+    const filterOn = $("filter-toggle").checked;
+    const maxDist = Number($("dist-slider").value);
+    $("dist-val").textContent = maxDist + "m";
+
+    // Build filter conditions
+    const conditions = [];
+
+    // Distance filter
+    if (filterOn) {
+      conditions.push(["<=", ["coalesce", ["get", "distance_m"], 99999], maxDist]);
+    }
+
+    // UPTD filter
+    if (activeFilters.size > 0 && activeFilters.size < 4) {
+      conditions.push(["in", ["get", "nearest_road_unit_kerja"], ["literal", Array.from(activeFilters)]]);
+    }
+
+    // ── Data Filters (AND across categories, OR within) ──
+
+    // Jenjang: skip if all selected or none selected
+    if (dataFilters.jenjang.size > 0 && dataFilters.jenjang.size < JENJANG_TOTAL) {
+      conditions.push(["in", ["get", "Jenjang"], ["literal", Array.from(dataFilters.jenjang)]]);
+    }
+
+    // Status: skip if both selected or none
+    if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL) {
+      conditions.push(["in", ["get", "Status"], ["literal", Array.from(dataFilters.status)]]);
+    }
+
+    // Validasi: skip if both selected or none
+    if (dataFilters.validasi.size > 0 && dataFilters.validasi.size < VALIDASI_TOTAL) {
+      conditions.push(["in", ["get", "Validasi"], ["literal", Array.from(dataFilters.validasi)]]);
+    }
+
+    // Kabupaten: exact match
+    if (dataFilters.kabupaten) {
+      conditions.push(["==", ["get", "KABUPATEN"], dataFilters.kabupaten]);
+    }
+
+    // Apply combined filter
+    if (conditions.length === 0) {
+      map.setFilter("schools-circle", null);
+    } else if (conditions.length === 1) {
+      map.setFilter("schools-circle", conditions[0]);
+    } else {
+      map.setFilter("schools-circle", ["all", ...conditions]);
+    }
+
+    // Count visible schools (mirrors MapLibre filter logic)
+    const total = schoolsGeoJSON ? schoolsGeoJSON.features.length : 0;
+    const visible = schoolsGeoJSON ? schoolsGeoJSON.features.filter(f => {
+      const p = f.properties;
+      if (filterOn) {
+        const d = p.distance_m;
+        if (d == null || d > maxDist) return false;
+      }
+      if (activeFilters.size > 0 && activeFilters.size < 4 && !activeFilters.has(p.nearest_road_unit_kerja)) return false;
+      if (dataFilters.jenjang.size > 0 && dataFilters.jenjang.size < JENJANG_TOTAL && !dataFilters.jenjang.has(p.Jenjang)) return false;
+      if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL && !dataFilters.status.has(p.Status)) return false;
+      if (dataFilters.validasi.size > 0 && dataFilters.validasi.size < VALIDASI_TOTAL && !dataFilters.validasi.has(p.Validasi)) return false;
+      if (dataFilters.kabupaten && p.KABUPATEN !== dataFilters.kabupaten) return false;
+      return true;
+    }).length : 0;
+
+    $("visible-count").textContent = visible.toLocaleString();
+    $("total-count").textContent = total.toLocaleString();
+    $("school-badge").textContent = visible.toLocaleString();
+    $("export-btn").textContent = `⬇ Export ${visible.toLocaleString()} to XLSX`;
+  }
+  $("dist-slider").addEventListener("input", updateFilters);
+
+  // Toggle switch handler
+  $("filter-toggle").addEventListener("change", () => {
+    const on = $("filter-toggle").checked;
+    $("filter-toggle-label").textContent = on ? "Filter ON" : "Filter OFF";
+    $("slider-row").classList.toggle("disabled", !on);
+    updateFilters();
+  });
+
+  // ─── Export filtered schools to XLSX ──────────────────────────
+  function exportFilteredSchools() {
+    if (!schoolsGeoJSON || typeof XLSX === "undefined") return;
+
+    const filterOn = $("filter-toggle").checked;
+    const maxDist = Number($("dist-slider").value);
+
+    // Gather filtered features (same logic as updateFilters)
+    const filtered = schoolsGeoJSON.features.filter(f => {
+      const p = f.properties;
+      if (filterOn) {
+        const d = p.distance_m;
+        if (d == null || d > maxDist) return false;
+      }
+      if (activeFilters.size > 0 && activeFilters.size < 4 && !activeFilters.has(p.nearest_road_unit_kerja)) return false;
+      if (dataFilters.jenjang.size > 0 && dataFilters.jenjang.size < JENJANG_TOTAL && !dataFilters.jenjang.has(p.Jenjang)) return false;
+      if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL && !dataFilters.status.has(p.Status)) return false;
+      if (dataFilters.validasi.size > 0 && dataFilters.validasi.size < VALIDASI_TOTAL && !dataFilters.validasi.has(p.Validasi)) return false;
+      if (dataFilters.kabupaten && p.KABUPATEN !== dataFilters.kabupaten) return false;
+      return true;
+    });
+
+    // Build header + rows from all non-geometry properties
+    const skipKeys = new Set(["geometry", "geometry_bbox", "wkb_geometry", "geom"]);
+    const allKeys = [];
+    filtered.forEach(f => {
+      for (const k of Object.keys(f.properties)) {
+        if (!skipKeys.has(k) && !allKeys.includes(k)) allKeys.push(k);
+      }
+    });
+
+    const rows = filtered.map(f => {
+      const row = {};
+      allKeys.forEach(k => { row[k] = f.properties[k] ?? ""; });
+      return row;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Filtered Schools");
+
+    // Build filename: sekolah_terfilter_{count}_baris_{YYYY-MM-DD}_{HHmm}.xlsx
+    const now = new Date();
+    const pad = n => String(n).padStart(2, "0");
+    const dateStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    const timeStr = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+    const filename = `sekolah_terfilter_${filtered.length}_baris_${dateStr}_${timeStr}.xlsx`;
+
+    XLSX.writeFile(wb, filename);
+  }
+  $("export-btn").addEventListener("click", exportFilteredSchools);
+
+  // ─── Show UI ──────────────────────────────────────────────
+  function showUI() {
+    // Hide the map loading overlay — UI is already visible
+    $("loading").classList.add("hidden");
+
+    // Show data-dependent sections (data filters, distance filter, UPTD, distance legend)
+    $("data-filter-section").style.display = "block";
+    $("filter-section").style.display = "block";
+    $("uptd-section").style.display = "block";
+    $("dist-legend-section").style.display = "block";
+
+    // Populate kabupaten dropdown from schools data
+    if (schoolsGeoJSON) {
+      const kabupatenSet = new Set();
+      schoolsGeoJSON.features.forEach(f => {
+        if (f.properties.KABUPATEN) kabupatenSet.add(f.properties.KABUPATEN);
+      });
+      const select = $("kabupaten-filter");
+      // Keep the "Semua" option, clear any previously populated options
+      select.innerHTML = '<option value="">Semua</option>';
+      Array.from(kabupatenSet).sort((a, b) => a.localeCompare(b, "id")).forEach(kab => {
+        const opt = document.createElement("option");
+        opt.value = kab;
+        opt.textContent = kab;
+        select.appendChild(opt);
+      });
+    }
+
+    if (roadsGeoJSON) {
+      $("export-btn").style.display = "block";
+      const codes = {};
+      roadsGeoJSON.features.forEach(f => {
+        const c = f.properties.unit_kerja_kode;
+        if (c) codes[c] = (codes[c] || 0) + 1;
+      });
+      const list = $("uptd-list"); list.innerHTML = "";
+      const legendRoads = $("legend-roads"); legendRoads.innerHTML = "";
+
+      Object.entries(codes).sort().forEach(([code, count]) => {
+        activeFilters.add(code);
+        const color = UPTD_COLORS[code] || UPTD_DEFAULT;
+        const item = document.createElement("label");
+        item.className = "uptd-item";
+        item.style.setProperty("--uptd-color", color);
+        item.innerHTML = `<input type="checkbox" checked data-code="${code}" /><span class="color-dot"></span><span class="name">${code}</span><span class="count">${count} roads</span>`;
+        item.querySelector("input").addEventListener("change", (e) => {
+          if (e.target.checked) activeFilters.add(code); else activeFilters.delete(code);
+          updateRoadVisibility(); updateFilters();
+        });
+        list.appendChild(item);
+        const row = document.createElement("div");
+        row.className = "legend-row";
+        row.innerHTML = `<span class="legend-color" style="background:${color}"></span><span>${code}</span>`;
+        legendRoads.appendChild(row);
+      });
+    }
+    updateFilters();
+  }
+
+  function updateRoadVisibility() {
+    if (!map.getLayer("roads-line")) return;
+    if (activeFilters.size >= 4) map.setFilter("roads-line", null);
+    else map.setFilter("roads-line", ["in", ["get", "unit_kerja_kode"], ["literal", Array.from(activeFilters)]]);
+  }
+
+  function updateStats() {
+    if (roadsGeoJSON) $("stat-roads").textContent = roadsGeoJSON.features.length.toLocaleString();
+    if (schoolsGeoJSON) {
+      $("stat-schools").textContent = schoolsGeoJSON.features.length.toLocaleString();
+      $("stat-matched").textContent = schoolsGeoJSON.features.filter(f => f.properties.nearest_road_kode != null).length.toLocaleString();
+      $("stat-nearby").textContent = schoolsGeoJSON.features.filter(f => f.properties.within_60m === true).length.toLocaleString();
+    }
+  }
+
+  function fitBounds() {
+    const coords = [];
+    if (roadsGeoJSON) roadsGeoJSON.features.forEach(f => {
+      const flat = f.geometry.coordinates.flat(2);
+      for (let i = 0; i < flat.length; i += 2) coords.push([flat[i], flat[i+1]]);
+    });
+    if (schoolsGeoJSON) schoolsGeoJSON.features.forEach(f => coords.push(f.geometry.coordinates));
+    if (coords.length) {
+      const bounds = new maplibregl.LngLatBounds();
+      coords.forEach(c => bounds.extend(c));
+      map.fitBounds(bounds, { padding: 40 });
+    }
+  }
+
+  // ─── INIT DONE ────────────────────────────────────────────
+  console.log("Map created. Waiting for WASM + map load...");
+
+  // Auto-load parquet when both WASM and map are ready
+  (async () => {
+    loadStatus.textContent = "Waiting for WASM modules...";
+    await wasmReady;  // wait for WASM in background
+
+    // Wait for map to finish loading (globe + starfield rendered)
+    loadStatus.textContent = "Loading map tiles...";
+    await new Promise(resolve => {
+      if (map.loaded()) resolve();
+      else map.once("load", resolve);
+    });
+
+    try {
+      loadStatus.textContent = "Fetching parquet files...";
+      const [roadsResp, schoolsResp] = await Promise.allSettled([
+        fetch("ruas_jalan.parquet"), fetch("sekolah_377.parquet")
+      ]);
+      if (roadsResp.status === "fulfilled" && roadsResp.value.ok &&
+          schoolsResp.status === "fulfilled" && schoolsResp.value.ok) {
+
+        loadStatus.textContent = "Parsing roads (ruas_jalan.parquet)...";
+        roadsGeoJSON = await loadParquetToGeoJSON("ruas_jalan.parquet");
+        addRoadsLayer();
+
+        loadStatus.textContent = "Parsing schools (sekolah_377.parquet)...";
+        schoolsGeoJSON = await loadParquetToGeoJSON("sekolah_377.parquet");
+        addSchoolsLayer();
+
+        loadStatus.textContent = "Rendering layers...";
+        fileDrop.classList.add("loaded");
+        fileStatus.className = "status ok";
+        fileStatus.textContent = `Auto-loaded ${roadsGeoJSON.features.length} roads, ${schoolsGeoJSON.features.length} schools`;
+        showUI(); updateStats();
+
+        // Fly from globe view to data bounds (with delay to ensure globe projection is ready)
+        setTimeout(() => {
+          try {
+            // Use ONLY school points for center calculation (more reliable than road line endpoints)
+            let minLng = 180, maxLng = -180, minLat = 90, maxLat = -90;
+            let count = 0;
+
+            schoolsGeoJSON.features.forEach(f => {
+              const c = f.geometry.coordinates;
+              if (c && c[0] >= 100 && c[0] <= 120 && c[1] >= -10 && c[1] <= 0) {
+                // Only accept coordinates within Indonesia/West Java range
+                if (c[0] < minLng) minLng = c[0];
+                if (c[0] > maxLng) maxLng = c[0];
+                if (c[1] < minLat) minLat = c[1];
+                if (c[1] > maxLat) maxLat = c[1];
+                count++;
+              }
+            });
+
+            if (count > 0) {
+              // Center of bounding box
+              const centerLng = (minLng + maxLng) / 2;
+              const centerLat = (minLat + maxLat) / 2;
+
+              // Calculate zoom based on extent (West Java is ~3° wide, ~1.5° tall)
+              const lngExtent = maxLng - minLng;
+              const latExtent = maxLat - minLat;
+              const maxExtent = Math.max(lngExtent, latExtent);
+              let zoom = 8;
+              if (maxExtent > 4) zoom = 6;
+              else if (maxExtent > 3) zoom = 7;
+              else if (maxExtent > 2) zoom = 8;
+              else if (maxExtent > 1) zoom = 9;
+              else zoom = 10;
+
+              console.log("Fly-to center:", centerLng, centerLat, "extent:", maxExtent.toFixed(2), "zoom:", zoom, "schools:", count);
+
+              map.flyTo({
+                center: [centerLng, centerLat],
+                zoom: zoom,
+                duration: 4000,
+                essential: true,
+              });
+              console.log("FlyTo triggered to", [centerLng.toFixed(4), centerLat.toFixed(4)], "zoom", zoom);
+            } else {
+              console.warn("No valid coordinates found, skipping fly-to");
+            }
+          } catch (e) {
+            console.error("Fly-to error:", e);
+          }
+        }, 500);
+      }
+    } catch (e) {
+      console.log("Auto-load not available:", e.message);
+    }
+  })();
+</script>
+
+<script>
+// ═══ COLLAPSIBLE SECTIONS ═══
+document.addEventListener('click', function(e) {
+  const title = e.target.closest('.section-title');
+  if (!title) return;
+  const section = title.closest('.section');
+  if (!section) return;
+  section.classList.toggle('collapsed');
+  // Save state
+  const key = section.dataset.section || section.id || '';
+  if (key) {
+    try { sessionStorage.setItem('section-' + key, section.classList.contains('collapsed') ? '1' : '0'); } catch(e) {}
+  }
+});
+
+// Restore collapsed state on load
+document.querySelectorAll('.section[data-section]').forEach(function(s) {
+  const key = s.dataset.section;
+  if (!key) return;
+  try {
+    if (sessionStorage.getItem('section-' + key) === '1') {
+      s.classList.add('collapsed');
+    }
+  } catch(e) {}
+});
+</script>
 </body>
 </html>
