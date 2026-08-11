@@ -702,6 +702,16 @@
         ["KECUKUPAN AIR", "Water Sufficiency"],
       ];
 
+      const validatedFields = [
+        ["Validasi", "Validation"],
+        ["Tipe_Jalan", "Road Type"],
+        ["Lebar_Lajur", "Lane Width"],
+        ["Tipe_ZoSS", "ZoSS Type"],
+        ["Sudah_ZOSS", "Has ZoSS"],
+        ["Lokasi_Gerbang", "Gate Location"],
+        ["Keterangan", "Notes"],
+      ];
+
       const roadFields = [
         ["nearest_road_name", "Road Name"],
         ["nearest_road_kode", "Road Code"],
@@ -736,6 +746,24 @@
         }
       });
       html += `</div>`;
+
+      // Validated info section (only show if any validated field has data)
+      const hasValidation = validatedFields.some(([key]) => p[key] != null && p[key] !== "");
+      if (hasValidation) {
+        html += `<div style="border-top:1px solid #334155; padding-top:6px; margin-top:6px;">`;
+        html += `<div style="font-weight:600; color:#fbbf24; margin-bottom:4px;">Validation Data</div>`;
+        validatedFields.forEach(([key, label]) => {
+          if (p[key] != null && p[key] !== "") {
+            let val = p[key];
+            let color = "#e2e8f0";
+            if (key === "Validasi") {
+              color = val === "Valid" ? "#22c55e" : "#ef4444";
+            }
+            html += `<div><span style="color:#64748b;">${label}:</span> <b style="color:${color};">${val}</b></div>`;
+          }
+        });
+        html += `</div>`;
+      }
 
       html += `</div>`;
 
@@ -1234,9 +1262,10 @@
       conditions.push(["in", ["get", "Jenjang"], ["literal", Array.from(dataFilters.jenjang)]]);
     }
 
-    // Status: skip if both selected or none
+    // Status: skip if both selected or none (use STATUS column, normalize casing)
     if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL) {
-      conditions.push(["in", ["get", "Status"], ["literal", Array.from(dataFilters.status)]]);
+      const statusValues = Array.from(dataFilters.status).map(v => v.toUpperCase());
+      conditions.push(["in", ["upcase", ["get", "STATUS"]], ["literal", statusValues]]);
     }
 
     // Validasi: skip if both selected or none
@@ -1268,7 +1297,7 @@
       }
       if (activeFilters.size > 0 && activeFilters.size < 4 && !activeFilters.has(p.nearest_road_unit_kerja)) return false;
       if (dataFilters.jenjang.size > 0 && dataFilters.jenjang.size < JENJANG_TOTAL && !dataFilters.jenjang.has(p.Jenjang)) return false;
-      if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL && !dataFilters.status.has(p.Status)) return false;
+      if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL && !dataFilters.status.has((p.STATUS || '').toUpperCase())) return false;
       if (dataFilters.validasi.size > 0 && dataFilters.validasi.size < VALIDASI_TOTAL && !dataFilters.validasi.has(p.Validasi)) return false;
       if (dataFilters.kabupaten && p.KABUPATEN !== dataFilters.kabupaten) return false;
       return true;
@@ -1303,12 +1332,12 @@
         const d = p.distance_m;
         if (d == null || d > maxDist) return false;
       }
-      if (activeFilters.size > 0 && activeFilters.size < 4 && !activeFilters.has(p.nearest_road_unit_kerja)) return false;
-      if (dataFilters.jenjang.size > 0 && dataFilters.jenjang.size < JENJANG_TOTAL && !dataFilters.jenjang.has(p.Jenjang)) return false;
-      if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL && !dataFilters.status.has(p.Status)) return false;
-      if (dataFilters.validasi.size > 0 && dataFilters.validasi.size < VALIDASI_TOTAL && !dataFilters.validasi.has(p.Validasi)) return false;
-      if (dataFilters.kabupaten && p.KABUPATEN !== dataFilters.kabupaten) return false;
-      return true;
+        if (activeFilters.size > 0 && activeFilters.size < 4 && !activeFilters.has(p.nearest_road_unit_kerja)) return false;
+        if (dataFilters.jenjang.size > 0 && dataFilters.jenjang.size < JENJANG_TOTAL && !dataFilters.jenjang.has(p.Jenjang)) return false;
+        if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL && !dataFilters.status.has((p.STATUS || '').toUpperCase())) return false;
+        if (dataFilters.validasi.size > 0 && dataFilters.validasi.size < VALIDASI_TOTAL && !dataFilters.validasi.has(p.Validasi)) return false;
+        if (dataFilters.kabupaten && p.KABUPATEN !== dataFilters.kabupaten) return false;
+        return true;
     });
 
     // Build header + rows from all non-geometry properties
@@ -1447,7 +1476,7 @@
     try {
       loadStatus.textContent = "Fetching parquet files...";
       const [roadsResp, schoolsResp] = await Promise.allSettled([
-        fetch("ruas_jalan.parquet"), fetch("sekolah_377.parquet")
+        fetch("ruas_jalan.parquet"), fetch("sekolah_merged.parquet")
       ]);
       if (roadsResp.status === "fulfilled" && roadsResp.value.ok &&
           schoolsResp.status === "fulfilled" && schoolsResp.value.ok) {
@@ -1456,8 +1485,8 @@
         roadsGeoJSON = await loadParquetToGeoJSON("ruas_jalan.parquet");
         addRoadsLayer();
 
-        loadStatus.textContent = "Parsing schools (sekolah_377.parquet)...";
-        schoolsGeoJSON = await loadParquetToGeoJSON("sekolah_377.parquet");
+        loadStatus.textContent = "Parsing schools (sekolah_merged.parquet)...";
+        schoolsGeoJSON = await loadParquetToGeoJSON("sekolah_merged.parquet");
         addSchoolsLayer();
 
         loadStatus.textContent = "Rendering layers...";
