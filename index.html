@@ -1475,9 +1475,19 @@
       }
     });
 
+    // Sanitize column names: remove XML-unsafe chars, replace / with _
+    const sanitizeKey = k => k.replace(/[/\\]/g, "_").replace(/[<>&"']/g, "");
+
     const rows = filtered.map(f => {
       const row = {};
-      allKeys.forEach(k => { row[k] = f.properties[k] ?? ""; });
+      allKeys.forEach(k => {
+        let val = f.properties[k];
+        // Convert booleans to readable strings
+        if (typeof val === "boolean") val = val ? "Ya" : "Tidak";
+        // Replace NaN / Infinity / -Infinity with null
+        if (typeof val === "number" && (!isFinite(val) || isNaN(val))) val = null;
+        row[sanitizeKey(k)] = val ?? "";
+      });
       return row;
     });
 
