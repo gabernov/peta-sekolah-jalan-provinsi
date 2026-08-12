@@ -512,6 +512,14 @@
         </div>
         <div class="stats-chips" id="stats-kab" style="display:none; max-height:180px; overflow-y:auto;"></div>
       </div>
+
+      <div class="stats-group" id="stats-uptd-group">
+        <div class="stats-group-label" style="cursor:pointer; user-select:none;" id="stats-uptd-toggle">
+          <span>Per UPTD</span>
+          <span class="chevron" id="stats-uptd-chevron">▸</span>
+        </div>
+        <div class="stats-chips" id="stats-uptd" style="display:none; max-height:180px; overflow-y:auto;"></div>
+      </div>
     </div>
 
     <div class="section" data-section="files">
@@ -534,6 +542,7 @@
           <div class="filter-label">Jenjang</div>
           <div class="filter-toggles" id="filter-jenjang">
             <button class="filter-btn" data-category="jenjang" data-value="SD">SD</button>
+            <button class="filter-btn" data-category="jenjang" data-value="SMP">SMP</button>
             <button class="filter-btn" data-category="jenjang" data-value="SMA">SMA</button>
             <button class="filter-btn" data-category="jenjang" data-value="SMK">SMK</button>
             <button class="filter-btn" data-category="jenjang" data-value="SLB">SLB</button>
@@ -559,6 +568,13 @@
         <div class="filter-group">
           <div class="filter-label">Kota/Kabupaten</div>
           <select id="kabupaten-filter" class="filter-select">
+            <option value="">Semua</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-label">UPTD</div>
+          <select id="uptd-filter" class="filter-select">
             <option value="">Semua</option>
           </select>
         </div>
@@ -1111,12 +1127,13 @@
   // Empty Set = no filter for that category (show all).
   // If ALL values in a category are selected, treat as "show all" (skip filter).
   const dataFilters = {
-    jenjang: new Set(),   // values: "SMA", "SMK", "SLB"
+    jenjang: new Set(),   // values: "SD", "SMP", "SMA", "SMK", "SLB"
     status: new Set(),    // values: "NEGERI", "SWASTA"
     validasi: new Set(),  // values: "Valid", "Tidak Valid"
     kabupaten: "",        // "" = Semua
+    uptd: "",             // "" = Semua
   };
-  const JENJANG_TOTAL = 4;
+  const JENJANG_TOTAL = 5;
   const STATUS_TOTAL = 2;
   const VALIDASI_TOTAL = 2;
 
@@ -1142,6 +1159,11 @@
   // ─── Kabupaten Dropdown Handler ───────────────────────
   $("kabupaten-filter").addEventListener("change", (e) => {
     dataFilters.kabupaten = e.target.value;
+    updateFilters();
+  });
+
+  $("uptd-filter").addEventListener("change", (e) => {
+    dataFilters.uptd = e.target.value;
     updateFilters();
   });
 
@@ -1301,6 +1323,11 @@
       conditions.push(["==", ["get", "KABUPATEN"], dataFilters.kabupaten]);
     }
 
+    // UPTD: exact match
+    if (dataFilters.uptd) {
+      conditions.push(["==", ["get", "nearest_road_unit_kerja"], dataFilters.uptd]);
+    }
+
     // Apply combined filter
     if (conditions.length === 0) {
       map.setFilter("schools-circle", null);
@@ -1323,6 +1350,7 @@
       if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL && !dataFilters.status.has((p.STATUS || '').toUpperCase())) return false;
       if (dataFilters.validasi.size > 0 && dataFilters.validasi.size < VALIDASI_TOTAL && !dataFilters.validasi.has(p.Validasi)) return false;
       if (dataFilters.kabupaten && p.KABUPATEN !== dataFilters.kabupaten) return false;
+      if (dataFilters.uptd && p.nearest_road_unit_kerja !== dataFilters.uptd) return false;
       return true;
     }) : [];
     const visible = visibleFeatures.length;
@@ -1338,7 +1366,7 @@
     $("stats-bar-fill").style.width = total > 0 ? ((visible / total) * 100) + "%" : "0%";
 
     // Count per category
-    const jCounts = {}, sCounts = {}, vCounts = {}, kCounts = {};
+    const jCounts = {}, sCounts = {}, vCounts = {}, kCounts = {}, uCounts = {};
     visibleFeatures.forEach(f => {
       const p = f.properties;
       const j = p.Jenjang || "?";
@@ -1349,10 +1377,12 @@
       vCounts[v] = (vCounts[v] || 0) + 1;
       const k = p.KABUPATEN || "?";
       kCounts[k] = (kCounts[k] || 0) + 1;
+      const u = p.nearest_road_unit_kerja || "Tidak Diketahui";
+      uCounts[u] = (uCounts[u] || 0) + 1;
     });
 
     // Render Jenjang chips
-    const jOrder = ["SD", "SMA", "SMK", "SLB"];
+    const jOrder = ["SD", "SMP", "SMA", "SMK", "SLB"];
     $("stats-jenjang").innerHTML = jOrder.filter(k => jCounts[k]).map(k =>
       `<div class="stats-chip jenjang-${k.toLowerCase()}"><span class="chip-label">${k}</span><span class="chip-count">${jCounts[k].toLocaleString()}</span></div>`
     ).join("");
@@ -1376,6 +1406,14 @@
     ).join("");
     $("stats-kab-toggle").querySelector("span:first-child").textContent =
       `Per Kota/Kabupaten (${kSorted.length})`;
+
+    // Render UPTD chips (sorted by count desc)
+    const uSorted = Object.entries(uCounts).sort((a, b) => b[1] - a[1]);
+    $("stats-uptd").innerHTML = uSorted.map(([k, c]) =>
+      `<div class="stats-chip kab"><span class="chip-label">${k}</span><span class="chip-count">${c.toLocaleString()}</span></div>`
+    ).join("");
+    $("stats-uptd-toggle").querySelector("span:first-child").textContent =
+      `Per UPTD (${uSorted.length})`;
   }
   $("dist-slider").addEventListener("input", updateFilters);
 
@@ -1383,6 +1421,15 @@
   $("stats-kab-toggle").addEventListener("click", () => {
     const el = $("stats-kab");
     const chevron = $("stats-kab-chevron");
+    const open = el.style.display !== "none";
+    el.style.display = open ? "none" : "flex";
+    chevron.classList.toggle("open", !open);
+  });
+
+  // ── UPTD stats toggle ──
+  $("stats-uptd-toggle").addEventListener("click", () => {
+    const el = $("stats-uptd");
+    const chevron = $("stats-uptd-chevron");
     const open = el.style.display !== "none";
     el.style.display = open ? "none" : "flex";
     chevron.classList.toggle("open", !open);
@@ -1415,6 +1462,7 @@
         if (dataFilters.status.size > 0 && dataFilters.status.size < STATUS_TOTAL && !dataFilters.status.has((p.STATUS || '').toUpperCase())) return false;
         if (dataFilters.validasi.size > 0 && dataFilters.validasi.size < VALIDASI_TOTAL && !dataFilters.validasi.has(p.Validasi)) return false;
         if (dataFilters.kabupaten && p.KABUPATEN !== dataFilters.kabupaten) return false;
+        if (dataFilters.uptd && p.nearest_road_unit_kerja !== dataFilters.uptd) return false;
         return true;
     });
 
@@ -1462,17 +1510,27 @@
     // Populate kabupaten dropdown from schools data
     if (schoolsGeoJSON) {
       const kabupatenSet = new Set();
+      const uptdSet = new Set();
       schoolsGeoJSON.features.forEach(f => {
         if (f.properties.KABUPATEN) kabupatenSet.add(f.properties.KABUPATEN);
+        if (f.properties.nearest_road_unit_kerja) uptdSet.add(f.properties.nearest_road_unit_kerja);
       });
       const select = $("kabupaten-filter");
-      // Keep the "Semua" option, clear any previously populated options
       select.innerHTML = '<option value="">Semua</option>';
       Array.from(kabupatenSet).sort((a, b) => a.localeCompare(b, "id")).forEach(kab => {
         const opt = document.createElement("option");
         opt.value = kab;
         opt.textContent = kab;
         select.appendChild(opt);
+      });
+      // Populate UPTD dropdown
+      const uptdSelect = $("uptd-filter");
+      uptdSelect.innerHTML = '<option value="">Semua</option>';
+      Array.from(uptdSet).sort().forEach(u => {
+        const opt = document.createElement("option");
+        opt.value = u;
+        opt.textContent = u;
+        uptdSelect.appendChild(opt);
       });
     }
 
